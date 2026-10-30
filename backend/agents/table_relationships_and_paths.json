@@ -1,0 +1,242 @@
+{
+  "version": "2.2",
+  "purpose": "Graph structure optimized for NetworkX with bilingual labels for non-technical users and direct SQL generation mapping.",
+  "graph_settings": {
+    "create_using": "nx.DiGraph",
+    "default_weight": 1
+  },
+  "nodes": [
+    {
+      "id": "employee",
+      "display_name": "Nhân viên",
+      "table_name": "employee",
+      "description": "Bảng chứa thông tin nhân sự: mã, họ tên, vị trí, phòng ban, cấp độ."
+    },
+    {
+      "id": "project",
+      "display_name": "Dự án",
+      "table_name": "project",
+      "description": "Bảng quản lý dự án: mã dự án, tên, thời gian, trạng thái."
+    },
+    {
+      "id": "project_leaders",
+      "display_name": "Leader dự án",
+      "table_name": "project_leaders",
+      "description": "Bảng nối dự án với nhân viên leader; lưu mỗi leader của mỗi dự án thành một bản ghi riêng."
+    },
+    {
+      "id": "task",
+      "display_name": "Công việc (Task)",
+      "table_name": "task",
+      "description": "Bảng công việc chi tiết thuộc dự án, phân công người thực hiện và quản lý."
+    },
+    {
+      "id": "attendance",
+      "display_name": "Chấm công",
+      "table_name": "attendance",
+      "description": "Bảng ghi nhận thời gian ra/vào và trạng thái chấm công hằng ngày."
+    },
+    {
+      "id": "overtime",
+      "display_name": "Làm thêm giờ (OT)",
+      "table_name": "overtime",
+      "description": "Bảng ghi nhận giờ làm thêm, lý do và phê duyệt."
+    },
+    {
+      "id": "leave_request",
+      "display_name": "Đơn nghỉ phép",
+      "table_name": "leave_request",
+      "description": "Bảng quản lý thông tin xin nghỉ phép của nhân viên."
+    },
+    {
+      "id": "behavior",
+      "display_name": "Hành vi / Vi phạm",
+      "table_name": "behavior",
+      "description": "Bảng ghi nhận các hành vi hoặc lỗi trong công việc."
+    },
+    {
+      "id": "daily_work_report",
+      "display_name": "Báo cáo công việc ngày",
+      "table_name": "daily_work_report",
+      "description": "Bảng báo cáo tiến độ và công việc hàng ngày của nhân viên."
+    }
+  ],
+  "edges": [
+    {
+      "source": "task",
+      "target": "project",
+      "label": "Thuộc dự án",
+      "join_condition": {
+        "from_column": "project_id",
+        "to_column": "project_id"
+      },
+      "relationship_type": "Many-to-One",
+      "description": "Công việc thuộc về một dự án cụ thể."
+    },
+    {
+      "source": "task",
+      "target": "employee",
+      "label": "Người thực hiện",
+      "join_condition": {
+        "from_column": "assignee_employee_id",
+        "to_column": "employee_id"
+      },
+      "relationship_type": "Many-to-One",
+      "description": "Nhân viên được phân công thực hiện công việc."
+    },
+    {
+      "source": "task",
+      "target": "employee",
+      "label": "Người quản lý",
+      "join_condition": {
+        "from_column": "manager_employee_id",
+        "to_column": "employee_id"
+      },
+      "relationship_type": "Many-to-One",
+      "description": "Nhân viên chịu trách nhiệm quản lý công việc."
+    },
+    {
+      "source": "attendance",
+      "target": "employee",
+      "label": "Của nhân viên",
+      "join_condition": {
+        "from_column": "employee_id",
+        "to_column": "employee_id"
+      },
+      "relationship_type": "Many-to-One",
+      "description": "Bản ghi chấm công gắn với nhân viên."
+    },
+    {
+      "source": "overtime",
+      "target": "employee",
+      "label": "Của nhân viên",
+      "join_condition": {
+        "from_column": "employee_id",
+        "to_column": "employee_id"
+      },
+      "relationship_type": "Many-to-One",
+      "description": "Đơn OT của nhân viên thực hiện."
+    },
+    {
+      "source": "overtime",
+      "target": "project",
+      "label": "Liên quan dự án",
+      "join_condition": {
+        "from_column": "project_id",
+        "to_column": "project_id"
+      },
+      "relationship_type": "Many-to-One",
+      "description": "Đơn OT gắn liền với dự án."
+    },
+    {
+      "source": "overtime",
+      "target": "task",
+      "label": "Liên quan công việc",
+      "join_condition": {
+        "from_column": "task_id",
+        "to_column": "task_id"
+      },
+      "relationship_type": "Many-to-One",
+      "description": "Đơn OT gắn liền với một task cụ thể."
+    },
+    {
+      "source": "leave_request",
+      "target": "employee",
+      "label": "Của nhân viên",
+      "join_condition": {
+        "from_column": "employee_id",
+        "to_column": "employee_id"
+      },
+      "relationship_type": "Many-to-One",
+      "description": "Đơn xin nghỉ của nhân viên."
+    },
+    {
+      "source": "behavior",
+      "target": "employee",
+      "label": "Của nhân viên",
+      "join_condition": {
+        "from_column": "employee_id",
+        "to_column": "employee_id"
+      },
+      "relationship_type": "Many-to-One",
+      "description": "Hành vi ghi nhận của nhân viên."
+    },
+    {
+      "source": "behavior",
+      "target": "project",
+      "label": "Liên quan dự án",
+      "join_condition": {
+        "from_column": "related_project_id",
+        "to_column": "project_id"
+      },
+      "relationship_type": "Many-to-One",
+      "description": "Hành vi xảy ra trong dự án."
+    },
+    {
+      "source": "behavior",
+      "target": "task",
+      "label": "Liên quan công việc",
+      "join_condition": {
+        "from_column": "related_task_id",
+        "to_column": "task_id"
+      },
+      "relationship_type": "Many-to-One",
+      "description": "Hành vi xảy ra tại task."
+    },
+    {
+      "source": "daily_work_report",
+      "target": "employee",
+      "label": "Lập bởi nhân viên",
+      "join_condition": {
+        "from_column": "employee_id",
+        "to_column": "employee_id"
+      },
+      "relationship_type": "Many-to-One",
+      "description": "Báo cáo công việc của nhân viên."
+    },
+    {
+      "source": "daily_work_report",
+      "target": "project",
+      "label": "Thuộc dự án",
+      "join_condition": {
+        "from_column": "project_id",
+        "to_column": "project_id"
+      },
+      "relationship_type": "Many-to-One",
+      "description": "Báo cáo tiến độ thuộc dự án."
+    },
+    {
+      "source": "daily_work_report",
+      "target": "task",
+      "label": "Thuộc công việc",
+      "join_condition": {
+        "from_column": "task_id",
+        "to_column": "task_id"
+      },
+      "relationship_type": "Many-to-One",
+      "description": "Báo cáo tiến độ thuộc task."
+    },
+    {
+      "source": "project_leaders",
+      "target": "project",
+      "label": "Leader thuộc dự án",
+      "join_condition": {
+        "from_column": "project_id",
+        "to_column": "project_id"
+      },
+      "relationship_type": "Many-to-One",
+      "description": "Mỗi bản ghi leader dự án thuộc về một dự án; một dự án có thể có nhiều bản ghi leader."
+    },
+    {
+      "source": "project_leaders",
+      "target": "employee",
+      "label": "Nhân viên đảm nhiệm vai trò leader",
+      "join_condition": {
+        "from_column": "employee_id",
+        "to_column": "employee_id"
+      },
+      "relationship_type": "Many-to-One",
+      "description": "Mỗi bản ghi tham chiếu một nhân viên; một nhân viên có thể làm leader trong nhiều dự án."
+    }
+  ]
+}

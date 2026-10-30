@@ -1,0 +1,612 @@
+{
+  "version": "1.0",
+  "purpose": "Semantic profiles for table-level vector retrieval in the HR AI-Agent and Text-to-SQL system.",
+  "retrieval_unit": "one_table_one_profile_one_embedding",
+  "tables": [
+    {
+      "table_name": "employee",
+      "business_name": "Nhân viên",
+      "table_role": "master_data",
+      "description": "Lưu thông tin định danh và thông tin tổ chức cơ bản của nhân viên trong doanh nghiệp.",
+      "grain": "Một bản ghi tương ứng với một nhân viên.",
+      "common_user_terms": [
+        "nhân viên",
+        "người",
+        "thành viên",
+        "member",
+        "PM",
+        "Team Lead",
+        "phòng ban",
+        "vị trí",
+        "cấp độ"
+      ],
+      "columns": [
+        {
+          "name": "employee_id",
+          "type": "identifier",
+          "description": "Mã định danh duy nhất của nhân viên.",
+          "semantic_role": "primary_key"
+        },
+        {
+          "name": "employee_name",
+          "type": "text",
+          "description": "Họ và tên nhân viên.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "position",
+          "type": "text",
+          "description": "Vị trí/chức danh của nhân viên.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "department",
+          "type": "text",
+          "description": "Phòng ban mà nhân viên thuộc về.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "system_level",
+          "type": "categorical",
+          "description": "Cấp độ/quyền hệ thống, ví dụ PM, Team Lead hoặc Member.",
+          "semantic_role": "attribute"
+        }
+      ]
+    },
+    {
+      "table_name": "project",
+      "business_name": "Dự án",
+      "table_role": "master_data",
+      "description": "Lưu thông tin tổng quan và trạng thái của các dự án được doanh nghiệp quản lý.",
+      "grain": "Một bản ghi tương ứng với một dự án.",
+      "common_user_terms": [
+        "dự án",
+        "project",
+        "tiến độ dự án",
+        "trạng thái dự án",
+        "deadline dự án"
+      ],
+      "important_rule": "Không lưu tổng số Task hoặc số Task hoàn thành làm nguồn dữ liệu gốc; các chỉ số này tính từ task.",
+      "columns": [
+        {
+          "name": "project_id",
+          "type": "identifier",
+          "description": "Mã định danh duy nhất của dự án.",
+          "semantic_role": "primary_key"
+        },
+        {
+          "name": "project_name",
+          "type": "text",
+          "description": "Tên dự án.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "description": "Mô tả tổng quan về dự án.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "start_date",
+          "type": "date",
+          "description": "Ngày bắt đầu dự án.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "end_date",
+          "type": "date",
+          "description": "Ngày kết thúc hoặc deadline dự án.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "status",
+          "type": "categorical",
+          "description": "Trạng thái hiện tại của dự án.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "description": "Ghi chú liên quan đến dự án.",
+          "semantic_role": "attribute"
+        }
+      ]
+    },
+    {
+      "table_name": "project_leaders",
+      "business_name": "Danh sách leader của dự án",
+      "table_role": "bridge_data",
+      "description": "Bảng nối giữa dự án và nhân viên để lưu danh sách các leader tham gia từng dự án. Mỗi bản ghi thể hiện một nhân viên đảm nhiệm vai trò leader trong một dự án.",
+      "grain": "Một bản ghi tương ứng với một cặp dự án và nhân viên leader.",
+      "common_user_terms": [
+        "leader dự án",
+        "các leader của dự án",
+        "project leader",
+        "project manager",
+        "technical lead",
+        "team lead",
+        "người lãnh đạo dự án",
+        "nhân viên quản lý dự án"
+      ],
+      "important_rules": [
+        "Một dự án có thể có nhiều leader.",
+        "Một nhân viên có thể làm leader trong nhiều dự án.",
+        "project_id tham chiếu project.project_id.",
+        "employee_id tham chiếu employee.employee_id.",
+        "Không lưu danh sách nhiều employee_id trong một ô; mỗi cặp project_id và employee_id là một bản ghi riêng.",
+        "Lưu chức vụ hiện tại của nhân viên leader trong leader_role."
+      ],
+      "columns": [
+        {
+          "name": "project_id",
+          "type": "identifier",
+          "description": "Mã dự án mà leader tham gia.",
+          "semantic_role": "foreign_key"
+        },
+        {
+          "name": "employee_id",
+          "type": "identifier",
+          "description": "Mã nhân viên đảm nhiệm vai trò leader trong dự án.",
+          "semantic_role": "foreign_key"
+        },
+        {
+          "name": "leader_role",
+          "type": "categorical",
+          "description": "Chức vụ của nhân viên leader trong dự án, lấy từ position của nhân viên.",
+          "semantic_role": "attribute"
+        }
+      ],
+      "key_constraints": [
+        "Khóa chính ghép đề xuất: (project_id, employee_id).",
+        "Nếu một nhân viên có thể đảm nhiệm nhiều chức vụ trong cùng một dự án, cân nhắc khóa chính ghép (project_id, employee_id, leader_role) hoặc dùng project_leader_id làm khóa chính riêng."
+      ]
+    },
+    {
+      "table_name": "task",
+      "business_name": "Task",
+      "table_role": "master_data",
+      "description": "Lưu các công việc cụ thể thuộc dự án, người thực hiện, người quản lý, thời gian, nguồn lực, tiến độ và trạng thái.",
+      "grain": "Một bản ghi tương ứng với một Task.",
+      "common_user_terms": [
+        "task",
+        "công việc",
+        "nhiệm vụ",
+        "đầu việc",
+        "task trễ",
+        "task hoàn thành",
+        "tiến độ task",
+        "deadline",
+        "người thực hiện"
+      ],
+      "important_rules": [
+        "Một Task thuộc một Project.",
+        "assignee_employee_id là nhân viên thực hiện Task.",
+        "manager_employee_id là nhân viên quản lý Task.",
+        "Nếu cần số Task của Project thì tính từ task."
+      ],
+      "columns": [
+        {
+          "name": "task_id",
+          "type": "identifier",
+          "description": "Mã định danh duy nhất của Task.",
+          "semantic_role": "primary_key"
+        },
+        {
+          "name": "project_id",
+          "type": "identifier",
+          "description": "Mã dự án mà Task thuộc về.",
+          "semantic_role": "foreign_key"
+        },
+        {
+          "name": "task_name",
+          "type": "text",
+          "description": "Tên/nội dung ngắn gọn của Task.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "category",
+          "type": "categorical",
+          "description": "Hạng mục chuyên môn, ví dụ BA, DE, DEV hoặc TEST.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "assignee_employee_id",
+          "type": "identifier",
+          "description": "Mã nhân viên trực tiếp thực hiện Task.",
+          "semantic_role": "foreign_key"
+        },
+        {
+          "name": "manager_employee_id",
+          "type": "identifier",
+          "description": "Mã nhân viên quản lý Task.",
+          "semantic_role": "foreign_key"
+        },
+        {
+          "name": "start_date",
+          "type": "date",
+          "description": "Ngày bắt đầu Task.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "end_date",
+          "type": "date",
+          "description": "Ngày kết thúc hoặc deadline Task.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "estimated_hours",
+          "type": "numeric",
+          "description": "Số giờ dự kiến thực hiện Task.",
+          "semantic_role": "measure"
+        },
+        {
+          "name": "actual_hours",
+          "type": "numeric",
+          "description": "Số giờ thực tế đã thực hiện cho Task.",
+          "semantic_role": "measure"
+        },
+        {
+          "name": "progress_percent",
+          "type": "numeric",
+          "description": "Phần trăm hoàn thành Task.",
+          "semantic_role": "measure"
+        },
+        {
+          "name": "status",
+          "type": "categorical",
+          "description": "Trạng thái hiện tại của Task.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "description": "Ghi chú liên quan đến Task.",
+          "semantic_role": "attribute"
+        }
+      ]
+    },
+    {
+      "table_name": "attendance",
+      "business_name": "Chấm công",
+      "table_role": "transaction_data",
+      "description": "Lưu thông tin chấm công hằng ngày của nhân viên, gồm thời điểm đến, thời điểm về và trạng thái chấm công.",
+      "grain": "Một bản ghi tương ứng với một nhân viên trong một ngày chấm công.",
+      "common_user_terms": [
+        "chấm công",
+        "đi làm",
+        "đi muộn",
+        "giờ vào",
+        "giờ ra",
+        "attendance"
+      ],
+      "columns": [
+        {
+          "name": "attendance_id",
+          "type": "identifier",
+          "description": "Mã định danh duy nhất của bản ghi chấm công.",
+          "semantic_role": "primary_key"
+        },
+        {
+          "name": "employee_id",
+          "type": "identifier",
+          "description": "Mã nhân viên được chấm công.",
+          "semantic_role": "foreign_key"
+        },
+        {
+          "name": "attendance_date",
+          "type": "date",
+          "description": "Ngày chấm công.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "check_in",
+          "type": "datetime",
+          "description": "Thời điểm nhân viên đến.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "check_out",
+          "type": "datetime",
+          "description": "Thời điểm nhân viên về.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "status",
+          "type": "categorical",
+          "description": "Trạng thái chấm công.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "description": "Ghi chú về bản ghi chấm công.",
+          "semantic_role": "attribute"
+        }
+      ]
+    },
+    {
+      "table_name": "overtime",
+      "business_name": "Làm thêm giờ / OT",
+      "table_role": "transaction_data",
+      "description": "Lưu các yêu cầu hoặc ghi nhận làm thêm giờ của nhân viên, dự án và Task liên quan, lý do, số giờ OT, KPI và trạng thái phê duyệt.",
+      "grain": "Một bản ghi tương ứng với một yêu cầu/ghi nhận OT.",
+      "common_user_terms": [
+        "OT",
+        "overtime",
+        "làm thêm",
+        "làm ngoài giờ",
+        "tăng ca",
+        "duyệt OT",
+        "từ chối OT"
+      ],
+      "important_rules": [
+        "Một OT có thể gắn Project và Task.",
+        "task_id tham chiếu Task hợp lệ.",
+        "Nếu có cả project_id và task_id thì Project phải phù hợp với Task.",
+        "status là trạng thái xử lý/phê duyệt."
+      ],
+      "columns": [
+        {
+          "name": "ot_id",
+          "type": "identifier",
+          "description": "Mã định danh duy nhất của bản ghi OT.",
+          "semantic_role": "primary_key"
+        },
+        {
+          "name": "employee_id",
+          "type": "identifier",
+          "description": "Mã nhân viên thực hiện hoặc yêu cầu OT.",
+          "semantic_role": "foreign_key"
+        },
+        {
+          "name": "ot_date",
+          "type": "date",
+          "description": "Ngày ghi nhận hoặc thực hiện OT.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "project_id",
+          "type": "identifier",
+          "description": "Mã dự án liên quan đến OT.",
+          "semantic_role": "foreign_key"
+        },
+        {
+          "name": "task_id",
+          "type": "identifier",
+          "description": "Mã Task liên quan đến OT.",
+          "semantic_role": "foreign_key"
+        },
+        {
+          "name": "reason",
+          "type": "text",
+          "description": "Lý do thực hiện OT.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "ot_hours",
+          "type": "numeric",
+          "description": "Số giờ làm thêm.",
+          "semantic_role": "measure"
+        },
+        {
+          "name": "kpi_bonus",
+          "type": "numeric",
+          "description": "Thông tin cộng KPI liên quan đến OT nếu có.",
+          "semantic_role": "measure"
+        },
+        {
+          "name": "status",
+          "type": "categorical",
+          "description": "Trạng thái OT: chờ duyệt, đã duyệt hoặc từ chối.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "description": "Ghi chú về OT.",
+          "semantic_role": "attribute"
+        }
+      ]
+    },
+    {
+      "table_name": "leave_request",
+      "business_name": "Nghỉ phép",
+      "table_role": "transaction_data",
+      "description": "Lưu yêu cầu nghỉ phép của nhân viên, thời gian nghỉ và trở lại theo ngày/ca, lý do, KPI và trạng thái phê duyệt.",
+      "grain": "Một bản ghi tương ứng với một yêu cầu nghỉ phép của một nhân viên.",
+      "common_user_terms": [
+        "nghỉ phép",
+        "xin nghỉ",
+        "nghỉ",
+        "đơn nghỉ",
+        "duyệt nghỉ",
+        "từ chối nghỉ"
+      ],
+      "important_rules": [
+        "leave_period lưu ngày và ca bắt đầu nghỉ.",
+        "return_period lưu ngày và ca nhân viên trở lại làm việc.",
+        "status là trạng thái xử lý/phê duyệt."
+      ],
+      "columns": [
+        {
+          "name": "leave_id",
+          "type": "identifier",
+          "description": "Mã định danh duy nhất của yêu cầu nghỉ phép.",
+          "semantic_role": "primary_key"
+        },
+        {
+          "name": "employee_id",
+          "type": "identifier",
+          "description": "Mã nhân viên yêu cầu nghỉ.",
+          "semantic_role": "foreign_key"
+        },
+        {
+          "name": "leave_period",
+          "type": "text",
+          "description": "Ngày và ca bắt đầu nghỉ, ví dụ: 2026-06-07 Ca sáng.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "return_period",
+          "type": "text",
+          "description": "Ngày và ca nhân viên trở lại làm việc, ví dụ: 2026-06-08 Ca sáng.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "reason",
+          "type": "text",
+          "description": "Lý do nghỉ phép.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "kpi_deduction",
+          "type": "numeric",
+          "description": "Số KPI bị trừ liên quan đến yêu cầu nghỉ phép.",
+          "semantic_role": "measure"
+        },
+        {
+          "name": "status",
+          "type": "categorical",
+          "description": "Trạng thái nghỉ phép: chờ duyệt, đã duyệt hoặc từ chối.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "description": "Ghi chú về yêu cầu nghỉ.",
+          "semantic_role": "attribute"
+        }
+      ]
+    },
+    {
+      "table_name": "behavior",
+      "business_name": "Hành vi",
+      "table_role": "transaction_data",
+      "description": "Lưu các sự kiện hoặc hành vi đáng chú ý của nhân viên như đi muộn, vi phạm nội quy hoặc chậm Task để phục vụ theo dõi và phân tích.",
+      "grain": "Một bản ghi tương ứng với một sự kiện/hành vi được ghi nhận của một nhân viên.",
+      "common_user_terms": [
+        "hành vi",
+        "vi phạm",
+        "đi muộn",
+        "chậm task",
+        "vi phạm nội quy",
+        "lỗi",
+        "behavior"
+      ],
+      "columns": [
+        {
+          "name": "behavior_id",
+          "type": "identifier",
+          "description": "Mã định danh duy nhất của bản ghi hành vi.",
+          "semantic_role": "primary_key"
+        },
+        {
+          "name": "employee_id",
+          "type": "identifier",
+          "description": "Mã nhân viên có hành vi được ghi nhận.",
+          "semantic_role": "foreign_key"
+        },
+        {
+          "name": "recorded_date",
+          "type": "date",
+          "description": "Ngày ghi nhận hành vi.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "behavior_type",
+          "type": "categorical",
+          "description": "Loại hành vi/lỗi, ví dụ đi muộn, vi phạm nội quy hoặc chậm Task.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "description": "Mô tả chi tiết hành vi hoặc sự kiện.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "related_project_id",
+          "type": "identifier",
+          "description": "Mã dự án liên quan nếu hành vi gắn với một dự án.",
+          "semantic_role": "foreign_key_optional"
+        },
+        {
+          "name": "related_task_id",
+          "type": "identifier",
+          "description": "Mã Task liên quan nếu hành vi gắn với một Task.",
+          "semantic_role": "foreign_key_optional"
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "description": "Ghi chú bổ sung về hành vi.",
+          "semantic_role": "attribute"
+        }
+      ]
+    },
+    {
+      "table_name": "daily_work_report",
+      "business_name": "Báo cáo công việc ngày",
+      "table_role": "transaction_data",
+      "description": "Lưu báo cáo công việc hằng ngày của nhân viên, gắn với dự án và Task để theo dõi nội dung đã thực hiện.",
+      "grain": "Một bản ghi tương ứng với một báo cáo công việc của một nhân viên cho một Task trong một ngày.",
+      "common_user_terms": [
+        "báo cáo ngày",
+        "daily report",
+        "hôm qua làm gì",
+        "công việc trong ngày",
+        "báo cáo công việc"
+      ],
+      "columns": [
+        {
+          "name": "daily_report_id",
+          "type": "identifier",
+          "description": "Mã định danh duy nhất của báo cáo công việc ngày.",
+          "semantic_role": "primary_key"
+        },
+        {
+          "name": "employee_id",
+          "type": "identifier",
+          "description": "Mã nhân viên lập báo cáo.",
+          "semantic_role": "foreign_key"
+        },
+        {
+          "name": "report_date",
+          "type": "date",
+          "description": "Ngày của báo cáo công việc.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "project_id",
+          "type": "identifier",
+          "description": "Mã dự án liên quan.",
+          "semantic_role": "foreign_key"
+        },
+        {
+          "name": "task_id",
+          "type": "identifier",
+          "description": "Mã Task liên quan.",
+          "semantic_role": "foreign_key"
+        },
+        {
+          "name": "content",
+          "type": "text",
+          "description": "Nội dung công việc nhân viên đã thực hiện/báo cáo.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "content_url",
+          "type": "text",
+          "description": "Đường dẫn tới nội dung hoặc tài liệu liên quan nếu có.",
+          "semantic_role": "attribute"
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "description": "Ghi chú bổ sung cho báo cáo.",
+          "semantic_role": "attribute"
+        }
+      ]
+    }
+  ]
+}
