@@ -36,133 +36,446 @@ class RouterAgent:
         self, user_question: str, run_id: str | None = None
     ) -> dict[str, str]:
         prompt = """
+
 /no_think
 
 Bạn là bộ định tuyến câu hỏi cho chatbot quản lý nhân sự.
-Nhiệm vụ của bạn là phân loại câu hỏi vào một trong ba nhánh: SQL, RAG hoặc HYBRID.
 
-QUY TẮC 1 - CHỌN SQL:
+Nhiệm vụ của bạn là xác định nguồn thông tin cần thiết để xử lý câu hỏi và phân loại vào một trong ba nhánh:
 
-Chọn SQL nếu câu hỏi cần truy vấn, liệt kê, tìm kiếm,
-thống kê hoặc phân tích dữ liệu nghiệp vụ đã lưu trong database.
+- SQL
+- RAG
+- HYBRID
 
-Các nhóm dữ liệu SQL hiện có:
-- employee: nhân viên, họ tên, mã nhân viên, vị trí,
+HỆ THỐNG CÓ HAI NGUỒN THÔNG TIN:
+
+SQL:
+Dữ liệu nghiệp vụ có cấu trúc được lưu trong database.
+
+RAG:
+Quy định, chính sách, nội quy, hướng dẫn và kiến thức
+được lưu trong tài liệu công ty.
+
+Nhiệm vụ của bạn chỉ là định tuyến câu hỏi.
+Không thực hiện truy vấn dữ liệu, không tự trả lời câu hỏi,
+không quyết định quyền truy cập và không thực hiện phân quyền.
+
+==================================================
+1. PHẠM VI NGUỒN THÔNG TIN SQL
+==================================================
+
+SQL được sử dụng khi câu hỏi cần lấy thông tin về
+các sự kiện, đối tượng, trạng thái hoặc hoạt động
+nghiệp vụ thực tế đã được ghi nhận trong database.
+
+Các nhóm dữ liệu hiện có:
+
+- employee:
+  Thông tin nhân viên, họ tên, mã nhân viên, vị trí,
   chức danh, phòng ban, cấp độ hệ thống.
-- project_leaders: leader dự án, danh sách leader,
-  nhân viên làm leader, vai trò leader trong dự án.
-- project: tên dự án, trạng thái, thời gian dự án.
-- task: công việc, người thực hiện, người quản lý,
+
+- project_leaders:
+  Leader dự án, nhân viên làm leader,
+  vai trò leader trong dự án.
+
+- project:
+  Tên dự án, trạng thái, thời gian dự án.
+
+- task:
+  Công việc, người thực hiện, người quản lý,
   tiến độ, deadline, số giờ làm việc.
-- attendance: chấm công, ngày đi làm, giờ vào, giờ ra.
-- overtime: OT, tăng ca, số giờ OT, trạng thái duyệt.
-- leave_request: đơn nghỉ phép, thời gian nghỉ,
+
+- attendance:
+  Chấm công, ngày đi làm, giờ vào, giờ ra.
+
+- overtime:
+  Đơn OT, thời gian OT, số giờ OT, trạng thái duyệt.
+
+- leave_request:
+  Đơn nghỉ phép, thời gian nghỉ,
   lý do và trạng thái duyệt.
-- behavior: hành vi, vi phạm, đi muộn, chậm task.
-- daily_work_report: báo cáo công việc ngày.
 
-ƯU TIÊN SQL khi câu hỏi đề cập đến dữ liệu có cấu trúc
-trong các bảng trên, kể cả khi dùng từ:
-"thông tin", "chi tiết", "danh sách", "vị trí",
-"chức vụ", "vai trò", "ai", "bao nhiêu", "thống kê".
+- behavior:
+  Hành vi, vi phạm, đi muộn, chậm task,
+  các lỗi nghiệp vụ đã được ghi nhận.
 
-QUY TẮC 2 - CHỌN RAG:
+- daily_work_report:
+  Báo cáo công việc ngày.
 
-Chọn RAG nếu câu hỏi cần tra cứu, giải thích hoặc
-tóm tắt nội dung trong tài liệu công ty, chẳng hạn:
-- Quy định, chính sách, nội quy.
-- SOP, quy trình, hướng dẫn.
-- Nội dung tài liệu và kiến thức nghiệp vụ.
+Các mục tiêu phù hợp với SQL:
 
-Không chọn RAG chỉ vì câu hỏi có từ "thông tin"
-hoặc yêu cầu giải thích một thuộc tính của nhân viên.
+- Tìm kiếm, liệt kê và xác định thông tin nhân viên.
+- Tra cứu lịch sử và các bản ghi nghiệp vụ.
+- Thống kê, tổng hợp và so sánh dữ liệu.
+- Xác định trạng thái thực tế của dự án, task,
+  đơn nghỉ phép, đơn OT và chấm công.
+- Xác định các hành vi, vi phạm đã được ghi nhận.
+- Phân tích tình trạng và xu hướng dựa trên dữ liệu.
+- Xác định thông tin thực tế về vị trí, chức vụ,
+  phòng ban và vai trò của nhân viên.
 
-QUY TẮC 3 - CHỌN HYBRID:
+NGUYÊN TẮC SQL:
 
-Chọn HYBRID khi câu hỏi cần đồng thời:
-1. Truy vấn dữ liệu nghiệp vụ từ database.
-2. Tra cứu nội dung từ tài liệu công ty.
-3. Kết hợp hai nguồn thông tin để giải quyết cùng một yêu cầu.
+SQL trả lời câu hỏi về những gì đã xảy ra,
+đang xảy ra hoặc đã được ghi nhận trong hệ thống.
 
-Khi chọn HYBRID, phải tách câu hỏi ban đầu thành
-đúng hai câu hỏi độc lập về mục tiêu truy vấn:
+Không chọn RAG chỉ vì câu hỏi nhắc đến một khái niệm
+có liên quan đến nội quy hoặc chính sách.
 
-- sql_question: Câu hỏi chỉ phục vụ việc lấy dữ liệu
-  cần thiết từ database.
-- rag_question: Câu hỏi chỉ phục vụ việc tra cứu
-  quy định, chính sách, quy trình hoặc kiến thức
-  cần thiết từ tài liệu công ty.
+Ví dụ:
+- Nhân viên nào đi muộn nhiều lần? -> SQL
+- Ai đang có đơn nghỉ phép? -> SQL
+- Đơn OT của nhân viên A đã được duyệt chưa? -> SQL
+- Nhân viên A đang giữ vị trí nào? -> SQL
+- Những nhân viên nào có lỗi trách nhiệm? -> SQL
 
-Yêu cầu khi tách câu hỏi:
-- Mỗi câu hỏi chỉ phục vụ đúng nhánh tương ứng.
-- Giữ nguyên mục tiêu, điều kiện, đối tượng và phạm vi
-  được đề cập trong câu hỏi gốc.
-- Không tự bổ sung dữ kiện hoặc giả định chưa được cung cấp.
-- Không yêu cầu SQL truy vấn nội dung chỉ có trong tài liệu.
-- Không yêu cầu RAG tìm kiếm dữ liệu nhân viên hoặc
-  các bản ghi nghiệp vụ cụ thể trong database.
-- Hai câu hỏi phải có đủ ngữ cảnh để xử lý độc lập.
-- Không chia nhỏ thành nhiều câu hỏi SQL hoặc nhiều
-  câu hỏi RAG trong giai đoạn thử nghiệm này.
-- Không tự trả lời câu hỏi gốc hoặc đưa ra kết luận
-  dựa trên dữ liệu chưa được truy xuất.
+==================================================
+2. PHẠM VI NGUỒN THÔNG TIN RAG
+==================================================
 
-Nếu câu hỏi chỉ cần một nguồn thông tin để trả lời,
-không chọn HYBRID.
+RAG được sử dụng khi câu hỏi cần tra cứu hoặc xử lý
+nội dung được quy định trong tài liệu công ty,
+không cần truy vấn các bản ghi nghiệp vụ thực tế.
 
-QUY TẮC XỬ LÝ CÂU HỎI KẾT HỢP:
+Các nhóm tri thức RAG bao gồm:
 
-- Nếu mục tiêu chính chỉ là truy vấn dữ liệu database,
-  chọn SQL.
-- Nếu mục tiêu chính chỉ là tra cứu quy định hoặc hướng dẫn,
-  chọn RAG.
-- Nếu muốn đánh giá, đối chiếu hoặc giải thích dữ liệu
-  nghiệp vụ dựa trên quy định, chính sách hoặc tài liệu,
-  chọn HYBRID khi cần cả hai nguồn để hoàn thành yêu cầu.
+A. NỘI QUY GIỜ LÀM VIỆC
 
-VÍ DỤ PHÂN LOẠI:
+- Giờ bắt đầu và kết thúc làm việc.
+- Thời gian nghỉ giữa giờ.
+- Quy định đi muộn, về sớm.
+- Quy định chấm công.
+- Trách nhiệm liên quan đến thời gian làm việc.
 
-"Thông tin các leader" -> SQL
+B. CHÍNH SÁCH NGHỈ PHÉP
 
-"Thông tin các leader và vị trí của họ" -> SQL
+- Các loại nghỉ phép.
+- Điều kiện và quyền lợi nghỉ phép.
+- Số ngày nghỉ theo chính sách.
+- Quy trình đăng ký và phê duyệt.
+- Nguyên tắc xem xét và phê duyệt đơn nghỉ phép.
+- Các trường hợp có thể từ chối yêu cầu nghỉ phép.
 
-"Danh sách leader và dự án họ phụ trách" -> SQL
+C. QUY ĐỊNH LÀM THÊM GIỜ
 
-"Leader của dự án A là ai?" -> SQL
+- Điều kiện đăng ký OT.
+- Quy trình đăng ký và phê duyệt OT.
+- Nguyên tắc xem xét yêu cầu làm thêm giờ.
+- Trách nhiệm của người đăng ký và người phê duyệt.
+- Các điều kiện và trường hợp được áp dụng OT.
 
-"Chức vụ hiện tại của nhân viên Nguyễn Văn A?" -> SQL
+D. QUY ĐỊNH CHUNG VÀ QUY TRÌNH NỘI BỘ
 
-"Nhân viên nào đi muộn tháng này?" -> SQL
+- Nội quy công ty.
+- Quy tắc ứng xử.
+- Nghĩa vụ và trách nhiệm của nhân viên.
+- Quy trình làm việc.
+- Hướng dẫn nghiệp vụ.
+- Các nguyên tắc vận hành nội bộ.
 
-"Các task đang bị trễ?" -> SQL
+E. CHÍNH SÁCH LƯƠNG VÀ KHEN THƯỞNG
 
-"Quy định về trách nhiệm của leader?" -> RAG
+- Quy định về lương và chế độ đãi ngộ.
+- Nguyên tắc xét lương.
+- Chính sách và điều kiện khen thưởng.
+- Các hình thức và tiêu chí khen thưởng.
+- Nguyên tắc đánh giá để xét thưởng.
 
-"Quy trình xin nghỉ phép gồm những bước nào?" -> RAG
+F. QUY ĐỊNH VI PHẠM VÀ XỬ LÝ
 
-"Chính sách nghỉ phép năm của công ty?" -> RAG
+- Mô tả các hành vi vi phạm.
+- Phân loại các lỗi trách nhiệm, lỗi nhiệm vụ,
+  lỗi nội quy.
+- Các tình huống được xem là vi phạm.
+- Nguyên tắc và hình thức xử lý.
+- Quy trình xử lý các trường hợp vi phạm.
 
-"Liệt kê các nhân viên đang có đơn xin nghỉ phép" -> SQL
+G. QUY ĐỊNH THEO ĐỐI TƯỢNG
 
-"Những nhân viên đang xin nghỉ phép có đáp ứng chính sách
-nghỉ phép của công ty không?" -> HYBRID
+- Nội quy dành riêng cho từng system level.
+- Quy định dành riêng cho từng position.
+- Trách nhiệm và nghĩa vụ theo từng vị trí.
+- Quyền hạn và phạm vi trách nhiệm theo chức danh.
+- Các yêu cầu công việc riêng theo từng đối tượng.
 
-Với ví dụ HYBRID trên:
-sql_question: Liệt kê các nhân viên đang có đơn xin nghỉ phép,
-kèm thông tin và trạng thái đơn.
+Các mục tiêu phù hợp với RAG:
 
-rag_question: Truy xuất chính sách nghỉ phép của công ty,
-bao gồm điều kiện và quy định phê duyệt.
+- Tra cứu và giải thích nội dung quy định.
+- Xác định điều kiện, quyền lợi và nghĩa vụ.
+- Giải thích quy trình và hướng dẫn.
+- Tóm tắt và so sánh các chính sách.
+- Tra cứu nguyên tắc xử lý một tình huống.
+- Giải thích trách nhiệm của một vị trí hoặc cấp độ.
+- Tra cứu chính sách áp dụng cho một tình huống
+  giả định hoặc một đối tượng đã được nêu rõ.
 
-ĐỊNH DẠNG ĐẦU RA:
+NGUYÊN TẮC RAG:
+
+RAG trả lời câu hỏi về những gì công ty quy định,
+yêu cầu, cho phép, khuyến khích hoặc xử lý.
+
+Không chọn SQL chỉ vì câu hỏi nhắc đến nhân viên,
+chức vụ, level hoặc vị trí.
+
+Ví dụ:
+- Quy định giờ làm việc của công ty? -> RAG
+- Điều kiện để được duyệt nghỉ phép? -> RAG
+- Team Lead có trách nhiệm gì? -> RAG
+- Level Member vi phạm nội quy sẽ bị xử lý thế nào? -> RAG
+- Chính sách khen thưởng dành cho nhân viên? -> RAG
+- Quy định OT đối với Project Manager? -> RAG
+
+==================================================
+3. NGUYÊN TẮC PHÂN BIỆT SQL VÀ RAG
+==================================================
+
+Hãy xác định bản chất thông tin mà người dùng muốn biết,
+không phân loại chỉ dựa trên từ khóa hoặc động từ.
+
+Phân biệt theo hai câu hỏi:
+
+- Câu hỏi đang muốn biết SỰ THẬT NGHIỆP VỤ nào?
+  -> SQL.
+
+- Câu hỏi đang muốn biết QUY ĐỊNH hoặc TRI THỨC nào?
+  -> RAG.
+
+Một chủ đề có thể xuất hiện ở cả hai nguồn
+nhưng không có nghĩa là phải sử dụng cả hai.
+
+Ví dụ với chủ đề đi muộn:
+
+- Nhân viên A đi muộn bao nhiêu lần? -> SQL.
+- Công ty quy định đi muộn thế nào? -> RAG.
+- Nhân viên A có vi phạm quy định đi muộn không? -> HYBRID
+  nếu cần đối chiếu lịch sử thực tế với nội quy.
+
+Ví dụ với chủ đề nghỉ phép:
+
+- Nhân viên A có đơn nghỉ phép nào? -> SQL.
+- Công ty có chính sách nghỉ phép thế nào? -> RAG.
+- Nhân viên A có đủ điều kiện được duyệt đơn nghỉ phép
+  đang đăng ký không? -> HYBRID.
+
+Ví dụ với chủ đề chức vụ:
+
+- Nhân viên A đang giữ chức vụ gì? -> SQL.
+- Team Lead có trách nhiệm gì? -> RAG.
+- Nhân viên A có thực hiện đúng trách nhiệm
+  của vị trí hiện tại không? -> HYBRID
+  nếu cần dữ liệu thực tế và quy định tương ứng.
+
+==================================================
+4. QUY TẮC CHỌN HYBRID
+==================================================
+
+HYBRID chỉ được chọn khi câu hỏi thực sự yêu cầu
+kết hợp cả hai nguồn thông tin để hoàn thành
+một mục tiêu chung.
+
+Phải đồng thời thỏa mãn:
+
+ĐIỀU KIỆN 1:
+Cần dữ liệu nghiệp vụ thực tế từ database.
+
+ĐIỀU KIỆN 2:
+Cần nội dung quy định hoặc chính sách từ tài liệu
+để đánh giá, đối chiếu hoặc giải thích dữ liệu đó.
+
+Nếu chỉ cần một nguồn thông tin thì không chọn HYBRID.
+
+Các trường hợp điển hình của HYBRID:
+
+- Đánh giá nhân viên có vi phạm nội quy không
+  dựa trên dữ liệu thực tế.
+- Đối chiếu đơn nghỉ phép với điều kiện phê duyệt.
+- Đánh giá yêu cầu OT theo chính sách công ty.
+- Kiểm tra việc xử lý vi phạm có phù hợp quy định không.
+- Đánh giá nhân viên có thực hiện đúng trách nhiệm
+  theo vị trí hoặc cấp độ hiện tại không.
+- Đánh giá điều kiện khen thưởng dựa trên dữ liệu
+  thành tích và chính sách khen thưởng.
+
+CÁC TRƯỜNG HỢP KHÔNG ĐƯỢC TỰ ĐỘNG CHỌN HYBRID:
+
+- Chỉ nhắc đến nhân viên và chính sách.
+- Chỉ hỏi quy định áp dụng cho một chức vụ cụ thể.
+- Chỉ hỏi dữ liệu thực tế liên quan đến một quy định.
+- Chỉ hỏi giải thích một tình huống giả định.
+- Chỉ yêu cầu thống kê hoặc liệt kê dữ liệu.
+- Chỉ yêu cầu tra cứu chính sách mà không cần
+  kiểm tra tình trạng thực tế của nhân viên.
+
+Đặc biệt:
+
+Các từ như:
+"đánh giá", "có được phép", "đủ điều kiện",
+"có vi phạm không", "có phù hợp không"
+không tự động quyết định nhánh HYBRID.
+
+Phải xác định xem câu trả lời có thực sự cần
+cả dữ liệu database và tài liệu công ty hay không.
+
+==================================================
+5. QUY TẮC TÁCH CÂU HỎI HYBRID
+==================================================
+
+Khi chọn HYBRID, phải tách câu hỏi gốc thành
+đúng hai câu hỏi độc lập:
+
+sql_question:
+Chỉ yêu cầu lấy dữ liệu nghiệp vụ cần thiết
+từ database.
+
+rag_question:
+Chỉ yêu cầu tra cứu quy định, chính sách,
+nội quy hoặc kiến thức cần thiết từ tài liệu.
+
+YÊU CẦU:
+
+- Giữ nguyên mục tiêu và phạm vi câu hỏi gốc.
+- Giữ nguyên đối tượng và các điều kiện được đề cập.
+- Không tự bổ sung dữ kiện hoặc giả định.
+- SQL không được yêu cầu tra cứu quy định.
+- RAG không được yêu cầu truy vấn bản ghi nghiệp vụ.
+- Hai câu hỏi phải đủ ngữ cảnh để xử lý độc lập.
+- Chỉ tạo một câu hỏi SQL và một câu hỏi RAG.
+- Không tự trả lời câu hỏi gốc.
+- Không đưa ra kết luận khi chưa có kết quả từ hai nhánh.
+
+Nếu cần biết vị trí hoặc cấp độ thực tế của nhân viên
+để xác định quy định cần tra cứu:
+
+- Đưa việc lấy thông tin nhân viên vào sql_question.
+- Đưa việc tra cứu quy định tương ứng vào rag_question.
+
+Không tự tạo điều kiện lọc quyền truy cập,
+không tự quyết định tài liệu nào được phép truy xuất.
+Đây không phải trách nhiệm của Router.
+
+==================================================
+6. VÍ DỤ PHÂN LOẠI
+==================================================
+
+CÂU HỎI SQL:
+
+"Những nhân viên nào đi muộn trong tháng này?"
+-> SQL
+
+"Đơn nghỉ phép của Nguyễn Văn A đã được duyệt chưa?"
+-> SQL
+
+"Có bao nhiêu nhân viên đang làm thêm giờ?"
+-> SQL
+
+"Nhân viên nào đang có lỗi trách nhiệm?"
+-> SQL
+
+"Những task nào đã quá deadline?"
+-> SQL
+
+CÂU HỎI RAG:
+
+"Quy định về giờ làm việc của công ty?"
+-> RAG
+
+"Nhân viên được nghỉ phép bao nhiêu ngày một năm?"
+-> RAG
+
+"Điều kiện để được phê duyệt OT?"
+-> RAG
+
+"Team Lead có trách nhiệm gì đối với nhân viên?"
+-> RAG
+
+"Nhân viên vi phạm lỗi nội quy sẽ bị xử lý thế nào?"
+-> RAG
+
+"Chính sách khen thưởng dành cho Project Manager?"
+-> RAG
+
+"Quy định về mức lương theo từng vị trí?"
+-> RAG
+
+CÂU HỎI HYBRID:
+
+"Những nhân viên đi muộn có vi phạm nội quy
+giờ làm việc không?"
+
+sql_question:
+Lấy dữ liệu chấm công của các nhân viên đi muộn,
+bao gồm thời gian và lịch sử đi muộn.
+
+rag_question:
+Tra cứu nội quy giờ làm việc và các quy định
+liên quan đến việc đi muộn.
+
+---
+
+"Nhân viên A có đủ điều kiện được duyệt đơn nghỉ phép
+đang đăng ký không?"
+
+sql_question:
+Lấy thông tin nhân viên A và đơn nghỉ phép đang đăng ký,
+bao gồm thời gian nghỉ và các thông tin nghiệp vụ liên quan.
+
+rag_question:
+Tra cứu chính sách nghỉ phép, bao gồm điều kiện
+và nguyên tắc phê duyệt đơn nghỉ phép.
+
+---
+
+"Những nhân viên có lỗi nội quy đã bị xử lý
+đúng theo quy định chưa?"
+
+sql_question:
+Lấy danh sách nhân viên có lỗi nội quy,
+thông tin vi phạm và hình thức xử lý đã ghi nhận.
+
+rag_question:
+Tra cứu quy định phân loại lỗi nội quy
+và nguyên tắc xử lý các vi phạm tương ứng.
+
+---
+
+"Nhân viên A có thực hiện đúng trách nhiệm
+của vị trí hiện tại không?"
+
+sql_question:
+Lấy thông tin vị trí hiện tại của nhân viên A
+và dữ liệu công việc thực tế cần thiết để đánh giá.
+
+rag_question:
+Tra cứu trách nhiệm và yêu cầu công việc
+áp dụng cho vị trí tương ứng.
+
+---
+
+"Những nhân viên được xét thưởng trong tháng này
+có đáp ứng điều kiện khen thưởng không?"
+
+sql_question:
+Lấy danh sách nhân viên được xét thưởng
+và dữ liệu thành tích liên quan.
+
+rag_question:
+Tra cứu chính sách và điều kiện xét khen thưởng
+của công ty.
+
+==================================================
+7. ĐỊNH DẠNG ĐẦU RA
+==================================================
 
 Nếu chọn SQL, chỉ trả về:
+
 SQL
 
 Nếu chọn RAG, chỉ trả về:
+
 RAG
 
-Nếu chọn HYBRID, chỉ trả về JSON hợp lệ theo cấu trúc:
+Nếu chọn HYBRID, chỉ trả về JSON hợp lệ:
+
 {
   "intent": "HYBRID",
   "sql_question": "Câu hỏi dành cho SQL",
@@ -171,6 +484,7 @@ Nếu chọn HYBRID, chỉ trả về JSON hợp lệ theo cấu trúc:
 
 Không sử dụng Markdown.
 Không thêm giải thích bên ngoài định dạng đầu ra.
+
 
 """
         try:

@@ -13,6 +13,63 @@ from views.chatbot_client import ask_chatbot
 
 # Định nghĩa URL Backend cho Team Lead
 API_BASE_URL = f"{BACKEND_BASE_URL}/api/lead"
+API_AGENT_BASE_URL = f"{BACKEND_BASE_URL}/api/agent"
+
+
+@st.fragment(run_every=2)
+def _render_request_evaluation(request_key: str):
+  evaluation = st.session_state.get("lead_request_evaluation")
+  if not evaluation or evaluation.get("request_key") != request_key:
+    return
+
+  if evaluation.get("error"):
+    st.error(evaluation["error"])
+    if st.button("Thử phân tích lại", key="retry_request_evaluation"):
+      st.session_state.pop("lead_request_evaluation", None)
+      st.rerun()
+    return
+
+  result = evaluation.get("result")
+  if result:
+    st.markdown("#### 🤖 Kết quả phân tích")
+    response_text = result.get("response")
+    if response_text:
+      st.markdown(response_text)
+    else:
+      st.error("Luồng đánh giá hoàn tất nhưng không có kết quả phân tích.")
+    return
+
+  run_id = evaluation.get("run_id")
+  if not run_id:
+    st.error("Không có mã chạy để lấy kết quả đánh giá.")
+    return
+
+  try:
+    response = authenticated_request(
+        "GET", f"{API_AGENT_BASE_URL}/runs/{run_id}"
+    )
+    run = response.json()
+  except Exception as exc:
+    st.error(f"Không thể tải trạng thái phân tích: {exc}")
+    return
+
+  if run.get("status") == "completed":
+    evaluation["result"] = run
+    st.session_state.lead_request_evaluation = evaluation
+    st.markdown("#### 🤖 Kết quả phân tích")
+    response_text = run.get("response")
+    if response_text:
+      st.markdown(response_text)
+    else:
+      st.error("Luồng đánh giá hoàn tất nhưng không có kết quả phân tích.")
+  elif run.get("status") == "failed":
+    evaluation["error"] = run.get(
+        "error", "Không thể đánh giá đơn yêu cầu lúc này."
+    )
+    st.session_state.lead_request_evaluation = evaluation
+    st.error(evaluation["error"])
+  else:
+    st.info("⏳ Luồng phân tích đang chạy. Kết quả sẽ tự động cập nhật tại đây.")
 
 
 def render_lead_view():
@@ -346,108 +403,163 @@ def render_lead_view():
   # ---------------------------------------------------------
   elif menu == "⚖️ Phê duyệt đơn (AI hỗ trợ)":
     st.subheader("⚖️ Phê duyệt đơn nghỉ phép / OT")
-    
-    try:
-      ot_res = authenticated_request(
-          "GET", f"{API_BASE_URL}/overtime/pending"
+
+    selected_request = st.session_state.get("selected_lead_request")
+    if selected_request:
+      request_type = selected_request["type"]
+      request_data = selected_request["request"]
+      request_id = request_data.get("ot_id" if request_type == "OT" else "leave_id")
+      request_key = f"{request_type}:{request_id}"
+      request_label = "làm thêm giờ (OT)" if request_type == "OT" else "nghỉ phép"
+      route_segment = (
+          f"overtime/{request_id}"
+          if request_type == "OT"
+          else f"leave-requests/{request_id}"
       )
-      pending_ots = ot_res.json() if ot_res.status_code == 200 else []
-    except Exception as exc:
-      st.error(f"Không thể tải đơn OT từ Backend: {exc}")
-      pending_ots = []
 
-    try:
-      leave_res = authenticated_request(
-          "GET", f"{API_BASE_URL}/leave-requests/pending"
-      )
-      pending_leaves = leave_res.json() if leave_res.status_code == 200 else []
-    except Exception as exc:
-      st.error(f"Không thể tải đơn nghỉ phép từ Backend: {exc}")
-      pending_leaves = []
+      if st.button("← Quay lại danh sách", key="back_to_pending_requests"):
+        st.session_state.pop("selected_lead_request", None)
+        st.session_state.pop("lead_request_evaluation", None)
+        st.rerun()
 
-    st.markdown("#### ⏳ Danh sách đơn OT chờ duyệt")
-    if pending_ots:
-      for ot in pending_ots:
-        with st.container(border=True):
-          st.markdown(f"**Mã đơn:** `{ot.get('ot_id')}` | **Nhân viên:** `{ot.get('employee_id')}` | **Số giờ OT:** {ot.get('ot_hours')}h")
-          st.markdown(f"**Lý do:** {ot.get('reason')}")
-          
-          c1, c2 = st.columns(2)
-          with c1:
-            if st.button("Phê duyệt OT", key=f"approve_ot_{ot.get('ot_id')}", type="primary"):
-              try:
-                authenticated_request(
-                    "PATCH",
-                    f"{API_BASE_URL}/overtime/{ot.get('ot_id')}/status",
-                    params={"status": "Đã duyệt"},
-                )
-                st.success("Đã duyệt đơn OT thành công!")
-                st.rerun()
-              except Exception as e:
-                st.error(f"Lỗi: {e}")
-          with c2:
-            if st.button("Từ chối OT", key=f"reject_ot_{ot.get('ot_id')}"):
-              try:
-                authenticated_request(
-                    "PATCH",
-                    f"{API_BASE_URL}/overtime/{ot.get('ot_id')}/status",
-                    params={"status": "Từ chối"},
-                )
-                st.error("Đã từ chối đơn OT.")
-                st.rerun()
-              except Exception as e:
-                st.error(f"Lỗi: {e}")
-    else:
-      st.info("Không có đơn OT chờ duyệt.")
+      st.markdown(f"### Chi tiết đơn {request_label} `#{request_id}`")
+      st.json(request_data, expanded=True)
 
-    st.markdown("#### ⏳ Danh sách đơn nghỉ phép chờ duyệt")
-    if pending_leaves:
-      for leave in pending_leaves:
-        with st.container(border=True):
-          st.markdown(
-              f"**Mã đơn:** `{leave.get('leave_id')}` | "
-              f"**Nhân viên:** `{leave.get('employee_id')}`"
+      evaluation = st.session_state.get("lead_request_evaluation")
+      if not evaluation or evaluation.get("request_key") != request_key:
+        try:
+          response = authenticated_request(
+              "POST",
+              f"{API_AGENT_BASE_URL}/request-evaluations",
+              json={
+                  "request_type": request_type,
+                  "request_id": str(request_id),
+              },
           )
-          st.markdown(
-              f"**Bắt đầu nghỉ:** {leave.get('leave_period')} | "
-              f"**Trở lại:** {leave.get('return_period')}"
-          )
-          st.markdown(f"**Lý do:** {leave.get('reason') or 'Không có'}")
+          evaluation = {
+              "request_key": request_key,
+              "run_id": response.json()["run_id"],
+          }
+        except Exception as exc:
+          evaluation = {
+              "request_key": request_key,
+              "error": f"Không thể bắt đầu phân tích đơn: {exc}",
+          }
+        st.session_state.lead_request_evaluation = evaluation
 
-          c1, c2 = st.columns(2)
-          with c1:
-            if st.button(
-                "Phê duyệt nghỉ phép",
-                key=f"approve_leave_{leave.get('leave_id')}",
-                type="primary",
-            ):
-              try:
-                authenticated_request(
-                    "PATCH",
-                    f"{API_BASE_URL}/leave-requests/{leave.get('leave_id')}/status",
-                    params={"status": "Đã duyệt"},
-                )
-                st.success("Đã duyệt đơn nghỉ phép thành công!")
-                st.rerun()
-              except Exception as e:
-                st.error(f"Lỗi: {e}")
-          with c2:
-            if st.button(
-                "Từ chối nghỉ phép",
-                key=f"reject_leave_{leave.get('leave_id')}",
-            ):
-              try:
-                authenticated_request(
-                    "PATCH",
-                    f"{API_BASE_URL}/leave-requests/{leave.get('leave_id')}/status",
-                    params={"status": "Từ chối"},
-                )
-                st.error("Đã từ chối đơn nghỉ phép.")
-                st.rerun()
-              except Exception as e:
-                st.error(f"Lỗi: {e}")
+      if evaluation.get("error"):
+        st.error(evaluation["error"])
+        if st.button("Thử phân tích lại", key="retry_request_evaluation"):
+          st.session_state.pop("lead_request_evaluation", None)
+          st.rerun()
+      else:
+        _render_request_evaluation(request_key)
+
+      st.markdown("---")
+      approve_column, reject_column = st.columns(2)
+      with approve_column:
+        if st.button(
+            "Chấp nhận",
+            key="approve_selected_request",
+            type="primary",
+        ):
+          try:
+            authenticated_request(
+                "PATCH",
+                f"{API_BASE_URL}/{route_segment}/status",
+                params={"status": "Đã duyệt"},
+            )
+            st.session_state["lead_approval_flash"] = "Đã duyệt đơn thành công!"
+            st.session_state.pop("selected_lead_request", None)
+            st.session_state.pop("lead_request_evaluation", None)
+            st.rerun()
+          except Exception as exc:
+            st.error(f"Không thể chấp nhận đơn: {exc}")
+      with reject_column:
+        if st.button("Từ chối", key="reject_selected_request"):
+          try:
+            authenticated_request(
+                "PATCH",
+                f"{API_BASE_URL}/{route_segment}/status",
+                params={"status": "Từ chối"},
+            )
+            st.session_state["lead_approval_flash"] = "Đã từ chối đơn."
+            st.session_state.pop("selected_lead_request", None)
+            st.session_state.pop("lead_request_evaluation", None)
+            st.rerun()
+          except Exception as exc:
+            st.error(f"Không thể từ chối đơn: {exc}")
     else:
-      st.info("Không có đơn nghỉ phép chờ duyệt.")
+      approval_flash = st.session_state.pop("lead_approval_flash", None)
+      if approval_flash:
+        st.success(approval_flash)
+
+      try:
+        ot_res = authenticated_request(
+            "GET", f"{API_BASE_URL}/overtime/pending"
+        )
+        pending_ots = ot_res.json()
+      except Exception as exc:
+        st.error(f"Không thể tải đơn OT từ Backend: {exc}")
+        pending_ots = []
+
+      try:
+        leave_res = authenticated_request(
+            "GET", f"{API_BASE_URL}/leave-requests/pending"
+        )
+        pending_leaves = leave_res.json()
+      except Exception as exc:
+        st.error(f"Không thể tải đơn nghỉ phép từ Backend: {exc}")
+        pending_leaves = []
+
+      st.markdown("#### ⏳ Danh sách đơn OT chờ duyệt")
+      if pending_ots:
+        for ot in pending_ots:
+          with st.container(border=True):
+            st.markdown(
+                f"**Mã đơn:** `{ot.get('ot_id')}` | "
+                f"**Nhân viên:** `{ot.get('employee_id')}` | "
+                f"**Số giờ OT:** {ot.get('ot_hours')}h"
+            )
+            st.write(f"**Lý do:** {ot.get('reason') or 'Không có'}")
+            if st.button(
+                "Chi tiết",
+                key=f"detail_ot_{ot.get('ot_id')}",
+            ):
+              st.session_state.selected_lead_request = {
+                  "type": "OT",
+                  "request": ot,
+              }
+              st.session_state.pop("lead_request_evaluation", None)
+              st.rerun()
+      else:
+        st.info("Không có đơn OT chờ duyệt.")
+
+      st.markdown("#### ⏳ Danh sách đơn nghỉ phép chờ duyệt")
+      if pending_leaves:
+        for leave in pending_leaves:
+          with st.container(border=True):
+            st.markdown(
+                f"**Mã đơn:** `{leave.get('leave_id')}` | "
+                f"**Nhân viên:** `{leave.get('employee_id')}`"
+            )
+            st.markdown(
+                f"**Bắt đầu nghỉ:** {leave.get('leave_period')} | "
+                f"**Trở lại:** {leave.get('return_period')}"
+            )
+            st.write(f"**Lý do:** {leave.get('reason') or 'Không có'}")
+            if st.button(
+                "Chi tiết",
+                key=f"detail_leave_{leave.get('leave_id')}",
+            ):
+              st.session_state.selected_lead_request = {
+                  "type": "LEAVE_REQUEST",
+                  "request": leave,
+              }
+              st.session_state.pop("lead_request_evaluation", None)
+              st.rerun()
+      else:
+        st.info("Không có đơn nghỉ phép chờ duyệt.")
 
   # ---------------------------------------------------------
   # 5. Menu: Theo dõi tiến độ nhóm

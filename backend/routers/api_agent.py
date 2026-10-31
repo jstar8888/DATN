@@ -1,10 +1,12 @@
 import asyncio
 import json
 import logging
+from typing import Any, Literal
 from uuid import uuid4
 
 from fastapi import (
     APIRouter,
+    Depends,
     HTTPException,
     Query,
     Request,
@@ -14,15 +16,149 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from database.supabase_general_service import SupabaseService
+from routers.api_authentication import require_role
 from utils.event_bus import global_event_bus
 
 router = APIRouter(prefix="/api/agent", tags=["AI Agent"])
 logger = logging.getLogger(__name__)
 _run_tasks = set()
+db = SupabaseService()
 
 
 class ChatbotRequest(BaseModel):
   question: str = Field(..., min_length=1, description="Câu hỏi gửi tới chatbot")
+
+
+class RequestEvaluationRequest(BaseModel):
+  request_type: Literal["OT", "LEAVE_REQUEST"]
+  request_id: str = Field(..., min_length=1)
+
+
+def _get_pending_request_for_leader(
+    payload: RequestEvaluationRequest,
+    employee: dict[str, Any],
+) -> dict[str, Any]:
+  if payload.request_type == "OT":
+    table, id_column = "overtime", "ot_id"
+    request_id: str | int = payload.request_id
+  else:
+    table, id_column = "leave_request", "leave_id"
+    try:
+      request_id = int(payload.request_id)
+    except ValueError as exc:
+      raise HTTPException(
+          status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+          detail="Mã đơn nghỉ phép phải là số nguyên.",
+      ) from exc
+
+  leader_position = employee.get("position")
+  if not leader_position:
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Leader chưa được cấu hình vị trí",
+    )
+
+  members = db.select(
+      "employee",
+      columns="employee_id",
+      filters={"position": leader_position, "system_level": "Member"},
+  )
+  member_ids = {
+      member["employee_id"]
+      for member in members
+      if member.get("employee_id")
+  }
+  requests = db.select(table, filters={id_column: request_id}, limit=1)
+  if not requests or requests[0].get("employee_id") not in member_ids:
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Không tìm thấy đơn yêu cầu",
+    )
+
+  request = requests[0]
+  if request.get("status") != "Chờ duyệt":
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Chỉ có thể đánh giá đơn đang chờ duyệt.",
+    )
+  return request
+
+
+async def _run_request_evaluation(
+    run_id: str,
+    command: str,
+    context: dict[str, Any],
+) -> None:
+  try:
+    from agents.langgraph_request_evaluation import app as evaluation_workflow
+
+    result = await asyncio.to_thread(
+        evaluation_workflow.invoke,
+        {"command": command, "context": context, "run_id": run_id},
+    )
+    global_event_bus.publish_event(
+        run_id,
+        "run",
+        "completed",
+        {
+            "request_type": command,
+            "request_id": context.get("ot_id", context.get("leave_id")),
+            "response": result["final_answer"],
+            "data": jsonable_encoder(
+                {
+                    "sql_data": result["sql_data"],
+                    "rag_data": result["rag_data"],
+                }
+            ),
+        },
+        agent="orchestrator",
+    )
+  except Exception:
+    logger.exception("Đánh giá đơn nhân sự thất bại (run_id=%s)", run_id)
+    global_event_bus.publish_event(
+        run_id,
+        "run",
+        "failed",
+        {"message": "Không thể đánh giá đơn yêu cầu lúc này."},
+        agent="orchestrator",
+    )
+
+
+@router.post(
+    "/request-evaluations",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Bắt đầu đánh giá đơn OT hoặc nghỉ phép",
+)
+async def start_request_evaluation(
+    payload: RequestEvaluationRequest,
+    employee: dict[str, Any] = Depends(require_role("Team Lead")),
+):
+  request = _get_pending_request_for_leader(payload, employee)
+  if payload.request_type == "OT":
+    command = "OT"
+    context = {"ot_id": request["ot_id"]}
+  else:
+    command = "LEAVE_REQUEST"
+    context = {"leave_id": request["leave_id"]}
+
+  run_id = str(uuid4())
+  request_id = context.get("ot_id", context.get("leave_id"))
+  global_event_bus.publish_event(
+      run_id,
+      "run",
+      "running",
+      {
+          "question": f"Đánh giá đơn {command} mã {request_id}",
+          "request_type": command,
+          "request_id": request_id,
+      },
+      agent="orchestrator",
+  )
+  task = asyncio.create_task(_run_request_evaluation(run_id, command, context))
+  _run_tasks.add(task)
+  task.add_done_callback(_run_tasks.discard)
+  return {"status": "running", "run_id": run_id}
 
 
 async def _run_chatbot(run_id: str, question: str):

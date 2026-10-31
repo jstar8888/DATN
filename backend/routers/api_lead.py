@@ -1,16 +1,11 @@
-import asyncio
 import logging
-from uuid import uuid4
 
 from datetime import date
 from typing import Dict, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Path
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from datamodel.schema import *
 from database.supabase_general_service import SupabaseService
 from routers.api_authentication import get_authenticated_employee, require_role
-from fastapi.encoders import jsonable_encoder
-from utils.event_bus import global_event_bus
 
 router = APIRouter(
     prefix="/api/lead",
@@ -19,7 +14,6 @@ router = APIRouter(
 )
 logger = logging.getLogger(__name__)
 db = SupabaseService()  # Khởi tạo SupabaseService để sử dụng trong các API
-_request_evaluation_tasks: set[asyncio.Task[None]] = set()
 
 
 class AuthenticatedTaskCreate(TaskCreate):
@@ -40,87 +34,6 @@ def _get_leader_member_ids(employee: Dict) -> set[str]:
         filters={"position": leader_position, "system_level": "Member"},
     )
     return {member["employee_id"] for member in members if member.get("employee_id")}
-
-
-async def _run_request_evaluation(
-    run_id: str,
-    command: str,
-    context: Dict[str, object],
-) -> None:
-    try:
-        from agents.langgraph_request_evaluation import app as evaluation_workflow
-
-        result = await asyncio.to_thread(
-            evaluation_workflow.invoke,
-            {"command": command, "context": context, "run_id": run_id},
-        )
-        global_event_bus.publish_event(
-            run_id,
-            "run",
-            "completed",
-            {
-                "request_type": command,
-                "request_id": context.get("ot_id", context.get("leave_id")),
-                "response": result["final_answer"],
-                "data": jsonable_encoder(
-                    {
-                        "sql_data": result["sql_data"],
-                        "rag_data": result["rag_data"],
-                    }
-                ),
-            },
-            agent="orchestrator",
-        )
-    except Exception:
-        logger.exception(
-            "Đánh giá đơn nhân sự thất bại (run_id=%s)", run_id
-        )
-        global_event_bus.publish_event(
-            run_id,
-            "run",
-            "failed",
-            {"message": "Không thể đánh giá đơn yêu cầu lúc này."},
-            agent="orchestrator",
-        )
-
-
-def _start_request_evaluation(command: str, context: Dict[str, object]) -> Dict[str, str]:
-    run_id = str(uuid4())
-    request_id = context.get("ot_id", context.get("leave_id"))
-    global_event_bus.publish_event(
-        run_id,
-        "run",
-        "running",
-        {
-            "question": f"Đánh giá đơn {command} mã {request_id}",
-            "request_type": command,
-            "request_id": request_id,
-        },
-        agent="orchestrator",
-    )
-    task = asyncio.create_task(_run_request_evaluation(run_id, command, context))
-    _request_evaluation_tasks.add(task)
-    task.add_done_callback(_request_evaluation_tasks.discard)
-    return {"status": "running", "run_id": run_id}
-
-
-def _get_pending_request_for_leader(
-    table: str,
-    id_column: str,
-    request_id: object,
-    employee: Dict,
-) -> Dict:
-    requests = db.select(table, filters={id_column: request_id}, limit=1)
-    member_ids = _get_leader_member_ids(employee)
-    if not requests or requests[0].get("employee_id") not in member_ids:
-        raise HTTPException(status_code=404, detail="Không tìm thấy đơn yêu cầu")
-    request = requests[0]
-    if request.get("status") != "Chờ duyệt":
-        raise HTTPException(
-            status_code=409,
-            detail="Chỉ có thể đánh giá đơn đang chờ duyệt.",
-        )
-    return request
 
 
 # ==========================================
@@ -353,21 +266,6 @@ def get_pending_overtime(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post(
-    "/overtime/{ot_id}/evaluate",
-    status_code=status.HTTP_202_ACCEPTED,
-    summary="Bắt đầu đánh giá đơn OT đang chờ duyệt",
-)
-async def evaluate_overtime_request(
-    ot_id: str = Path(..., description="Mã đơn OT"),
-    employee: Dict = Depends(get_authenticated_employee),
-):
-    request = _get_pending_request_for_leader(
-        "overtime", "ot_id", ot_id, employee
-    )
-    return _start_request_evaluation("OT", {"ot_id": request["ot_id"]})
-
-
 # ==========================================
 # 7. API cập nhật trạng thái cho đơn xin làm ngoài giờ
 # ==========================================
@@ -416,23 +314,6 @@ def get_pending_leave_requests(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post(
-    "/leave-requests/{leave_id}/evaluate",
-    status_code=status.HTTP_202_ACCEPTED,
-    summary="Bắt đầu đánh giá đơn nghỉ phép đang chờ duyệt",
-)
-async def evaluate_leave_request(
-    leave_id: int = Path(..., description="Mã đơn nghỉ phép"),
-    employee: Dict = Depends(get_authenticated_employee),
-):
-    request = _get_pending_request_for_leader(
-        "leave_request", "leave_id", leave_id, employee
-    )
-    return _start_request_evaluation(
-        "LEAVE_REQUEST", {"leave_id": request["leave_id"]}
-    )
 
 
 # ==========================================
