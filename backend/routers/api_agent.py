@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from database.supabase_general_service import SupabaseService
 from routers.api_authentication import require_role
 from utils.event_bus import global_event_bus
+from routers.api_authentication import get_authenticated_employee
 
 router = APIRouter(prefix="/api/agent", tags=["AI Agent"])
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ db = SupabaseService()
 
 class ChatbotRequest(BaseModel):
   question: str = Field(..., min_length=1, description="Câu hỏi gửi tới chatbot")
+  chat_id: str = Field(..., min_length=1, description="Mã phiên hội thoại")
 
 
 class RequestEvaluationRequest(BaseModel):
@@ -164,13 +166,20 @@ async def start_request_evaluation(
   return {"status": "running", "run_id": run_id}
 
 
-async def _run_chatbot(run_id: str, question: str):
+async def _run_chatbot(
+    run_id: str, question: str, chat_id: str, user_id: str
+):
   try:
     from agents.langgraph_orchestrator import app as chatbot_workflow
 
     result = await asyncio.to_thread(
         chatbot_workflow.invoke,
-        {"question": question, "run_id": run_id},
+        {
+            "question": question,
+            "run_id": run_id,
+            "chat_id": chat_id,
+            "user_id": user_id,
+        },
     )
     global_event_bus.publish_event(
         run_id,
@@ -202,16 +211,28 @@ async def _run_chatbot(run_id: str, question: str):
     status_code=status.HTTP_202_ACCEPTED,
     summary="Bắt đầu xử lý câu hỏi qua chatbot AI",
 )
-async def chatbot(payload: ChatbotRequest):
+async def chatbot(
+    payload: ChatbotRequest,
+    employee: dict[str, Any] = Depends(get_authenticated_employee),
+):
+  user_id = employee.get("employee_id")
+  if not user_id:
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Tài khoản chưa được liên kết với mã nhân viên.",
+    )
+
   run_id = str(uuid4())
   global_event_bus.publish_event(
       run_id,
       "run",
       "running",
-      {"question": payload.question},
+      {"question": payload.question, "chat_id": payload.chat_id},
       agent="orchestrator",
   )
-  task = asyncio.create_task(_run_chatbot(run_id, payload.question))
+  task = asyncio.create_task(
+      _run_chatbot(run_id, payload.question, payload.chat_id, user_id)
+  )
   _run_tasks.add(task)
   task.add_done_callback(_run_tasks.discard)
   return {"status": "running", "run_id": run_id}
@@ -324,3 +345,167 @@ def get_chatbot_run(run_id: str):
   elif run_event["status"] == "failed":
     response["error"] = run_event["details"]["message"]
   return response
+
+
+
+
+
+
+from fastapi import Path
+
+# ==========================================
+# API 1: Lấy lịch sử trò chuyện theo chat_id
+# ==========================================
+@router.get("/chats", summary="Lấy danh sách các phiên chat của người dùng")
+def list_chat_history(
+    employee: dict[str, Any] = Depends(get_authenticated_employee),
+):
+    user_id = employee.get("employee_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tài khoản chưa được liên kết với mã nhân viên.",
+        )
+
+    try:
+        messages = db.select(
+            "chat_messages",
+            filters={"user_id": user_id},
+            order_by="created_at",
+            desc=False,
+        )
+        chats: dict[str, dict[str, Any]] = {}
+        for message in messages:
+            chat_id = message.get("chat_id")
+            if not chat_id:
+                continue
+
+            chat = chats.setdefault(
+                chat_id,
+                {
+                    "chat_id": chat_id,
+                    "title": "Cuộc trò chuyện mới",
+                    "created_at": message.get("created_at"),
+                    "updated_at": message.get("created_at"),
+                    "total_messages": 0,
+                },
+            )
+            chat["updated_at"] = message.get("created_at")
+            chat["total_messages"] += 1
+            if message.get("title"):
+                chat["title"] = message["title"]
+            elif (
+                message.get("role") == "user"
+                and chat["title"] == "Cuộc trò chuyện mới"
+            ):
+                content = (message.get("content") or "").strip()
+                if content:
+                    chat["title"] = (
+                        content if len(content) <= 60 else f"{content[:57]}..."
+                    )
+
+        return {
+            "chats": sorted(
+                chats.values(),
+                key=lambda chat: chat.get("updated_at") or "",
+                reverse=True,
+            )
+        }
+    except Exception as exc:
+        logger.exception("Lấy danh sách lịch sử chat thất bại")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/chats/{chat_id}/history", summary="Lấy lịch sử tin nhắn của một phiên chat")
+def get_chat_history(
+    chat_id: str = Path(..., description="Mã phiên hội thoại (chat_id)"),
+    employee: dict[str, Any] = Depends(get_authenticated_employee),
+):
+    """
+    Lấy toàn bộ lịch sử tin nhắn của một phiên chat cụ thể dựa vào chat_id,
+    được sắp xếp theo thời gian tăng dần để đưa vào Agent hoặc hiển thị lên giao diện.
+    """
+    try:
+        user_id = employee.get("employee_id")
+        
+        # Truy vấn dữ liệu từ bảng chat_messages, lọc theo user_id và chat_id, sắp xếp tăng dần theo created_at
+        messages = db.select(
+            "chat_messages",
+            filters={"chat_id": chat_id, "user_id": user_id},
+            order_by="created_at",
+            desc=False
+        )
+        
+        return {
+            "chat_id": chat_id,
+            "title": next(
+                (message.get("title") for message in messages if message.get("title")),
+                next(
+                    (
+                        message.get("content", "").strip()[:60]
+                        for message in messages
+                        if message.get("role") == "user"
+                        and message.get("content", "").strip()
+                    ),
+                    "Cuộc trò chuyện mới",
+                ),
+            ),
+            "total_messages": len(messages),
+            "messages": messages
+        }
+    except Exception as e:
+        logger.exception("Lấy lịch sử chat thất bại (chat_id=%s)", chat_id)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==========================================
+# API 2: Gửi / Lưu một tin nhắn mới vào phiên chat
+# ==========================================
+class ChatMessageCreate(BaseModel):
+    chat_id: str = Field(..., min_length=1, description="Mã phiên hội thoại")
+    title: str | None = Field(default=None, description="Tiêu đề phiên hội thoại")
+    role: Literal["user", "assistant", "system"] = Field(..., description="Vai trò của người gửi tin nhắn")
+    content: str = Field(..., min_length=1, description="Nội dung tin nhắn")
+
+
+@router.post("/chats/messages", summary="Lưu tin nhắn mới vào lịch sử hội thoại")
+def save_chat_message(
+    payload: ChatMessageCreate,
+    employee: dict[str, Any] = Depends(get_authenticated_employee),
+):
+    """
+    Lưu một tin nhắn mới (của user hoặc assistant) vào bảng chat_messages trên Supabase.
+    """
+    try:
+        user_id = employee.get("employee_id")
+        
+        data = {
+            "user_id": user_id,
+            "chat_id": payload.chat_id,
+            "title": (
+                payload.title
+                or (
+                    payload.content.strip()[:60]
+                    if payload.role == "user"
+                    else "Cuộc trò chuyện mới"
+                )
+            ),
+            "role": payload.role,
+            "content": payload.content
+        }
+        
+        result = db.insert("chat_messages", data)
+        if not result:
+            raise HTTPException(status_code=400, detail="Không thể lưu tin nhắn vào cơ sở dữ liệu.")
+            
+        return {
+            "message": "Lưu tin nhắn thành công",
+            "data": result[0]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Lưu tin nhắn thất bại")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
