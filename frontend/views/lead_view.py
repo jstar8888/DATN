@@ -621,7 +621,7 @@ def render_lead_view():
             lead_response = result["response"]
           except Exception as e:
             lead_response = (
-                f"❌ Không thể kết nối tới Executive AI API Server: {e}"
+                f"⚠️ Luồng AI dừng do lỗi: {e}"
             )
 
           st.markdown(lead_response)

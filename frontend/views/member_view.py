@@ -391,7 +391,7 @@ def render_member_view():
                         result = ask_chatbot(prompt)
                         response_content = result["response"]
                     except Exception as e:
-                        response_content = f"⚠️ Không thể gọi API AI Chat: {e}"
+                        response_content = f"⚠️ Luồng AI dừng do lỗi: {e}"
 
                     st.markdown(response_content)
 

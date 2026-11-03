@@ -114,13 +114,16 @@ async def _run_request_evaluation(
         },
         agent="orchestrator",
     )
-  except Exception:
+  except Exception as exc:
     logger.exception("Đánh giá đơn nhân sự thất bại (run_id=%s)", run_id)
+    error_message = str(exc) or (
+        "Không thể đánh giá đơn yêu cầu lúc này."
+    )
     global_event_bus.publish_event(
         run_id,
         "run",
         "failed",
-        {"message": "Không thể đánh giá đơn yêu cầu lúc này."},
+        {"message": error_message},
         agent="orchestrator",
     )
 
@@ -180,13 +183,16 @@ async def _run_chatbot(run_id: str, question: str):
         },
         agent="orchestrator",
     )
-  except Exception:
+  except Exception as exc:
     logger.exception("Chatbot xử lý câu hỏi thất bại (run_id=%s)", run_id)
+    error_message = str(exc) or (
+        "Chatbot không thể xử lý câu hỏi lúc này."
+    )
     global_event_bus.publish_event(
         run_id,
         "run",
         "failed",
-        {"message": "Chatbot không thể xử lý câu hỏi lúc này."},
+        {"message": error_message},
         agent="orchestrator",
     )
 

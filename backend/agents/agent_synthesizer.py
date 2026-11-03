@@ -12,21 +12,21 @@ class SynthesizerAgent:
 
   def __init__(self, model_name: str = "qwen2.5-coder:7b"):
       # 2. Khởi tạo ChatOllama, model_name ở đây là tên mô hình bạn đã tải về Ollama
-      '''''
+      
       self.llm = ChatGoogleGenerativeAI(
           model="gemini-2.5-flash",  # Hoặc gemini-2.5-pro tùy nhu cầu
           temperature=0.1,
           
       )
-      '''''
       
+      '''''
       self.llm = ChatOllama(
           model=model_name, 
           temperature=0.1,
           base_url="http://localhost:11434",
           reasoning=False,
       )
-     
+      '''''
 
   def synthesize(
       self, user_question: str, raw_data, run_id: str | None = None

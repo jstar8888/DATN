@@ -664,7 +664,7 @@ def render_pm_view():
             result = ask_chatbot(pm_prompt)
             pm_response = result["response"]
           except Exception as e:
-            pm_response = f"❌ Lỗi kết nối tới FastAPI Backend: {e}"
+            pm_response = f"⚠️ Luồng AI dừng do lỗi: {e}"
 
           st.markdown(pm_response)
 
