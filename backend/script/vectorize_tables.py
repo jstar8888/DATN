@@ -92,3 +92,9 @@ def main():
 
 if __name__ == "__main__":
   main()
+
+
+
+  '''''
+  bây giờ hãy giúp tôi bổ sung thêm 2 api vào api_pm một api đầu tiên là dùng để đẩy các đoạn embdedidng lên supabase có điều là giờ là đẩy các đoạn embedding từ frontend chứ không cần cắt từ file semastic json nữa mà. 1 api khác lấy ra table name và chunking text để hiển thị trên frontend. 2 api này hãy sử dụng các dịch vụ đã viết sẵn trong file supabase_service
+  '''''

@@ -6,7 +6,7 @@ from api_client import (
     authenticated_request,
 )
 from views.attendance_view import render_attendance_view
-from views.chatbot_client import ask_chatbot
+from views.chatbot_client import render_chatbot
 
 # Cấu hình URL cơ sở của FastAPI backend
 API_BASE_URL = f"{BACKEND_BASE_URL}/api/member"
@@ -364,37 +364,12 @@ def render_member_view():
     # 6. Menu: AI Assistant (Gọi chatbot qua LangGraph)
     # ---------------------------------------------------------
     elif menu == "💬 AI Assistant":
-        st.subheader("💬 AI Assistant (Hỗ trợ Tra cứu thông minh)")
-
-        if "messages" not in st.session_state:
-            st.session_state.messages = [
-                {
-                    "role": "assistant",
-                    "content": "Xin chào! Tôi có thể giúp gì cho bạn về nội quy công ty hoặc tra cứu dữ liệu hệ thống?",
-                }
-            ]
-
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-
-        prompt = st.chat_input("Nhập câu hỏi của bạn tại đây...")
-
-        if prompt:
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
-
-            with st.chat_message("assistant"):
-                with st.spinner("AI đang xử lý thông qua API..."):
-                    try:
-                        result = ask_chatbot(prompt)
-                        response_content = result["response"]
-                    except Exception as e:
-                        response_content = f"⚠️ Luồng AI dừng do lỗi: {e}"
-
-                    st.markdown(response_content)
-
-            st.session_state.messages.append(
-                {"role": "assistant", "content": response_content}
-            )
+        render_chatbot(
+            title="💬 AI Assistant (Hỗ trợ Tra cứu thông minh)",
+            greeting=(
+                "Xin chào! Tôi có thể giúp gì cho bạn về nội quy công ty "
+                "hoặc tra cứu dữ liệu hệ thống?"
+            ),
+            input_placeholder="Nhập câu hỏi của bạn tại đây...",
+            state_prefix="member_chat",
+        )

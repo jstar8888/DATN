@@ -33,13 +33,6 @@ router = APIRouter(
 
 
 
-class SemanticProfileUpdatePayload(BaseModel):
-  table_name: str = Field(..., description="Tên bảng dữ liệu nghiệp vụ")
-  semantic_description: str = Field(
-      ..., description="Mô tả ngữ nghĩa, grain, khóa chính/ngoại phục vụ Text-to-SQL"
-  )
-
-
 class ChatRequestPayload(BaseModel):
   prompt: str = Field(
       ..., description="Câu hỏi của PM gửi tới AI Chatbot (RAG & Text-to-SQL)"
@@ -47,6 +40,15 @@ class ChatRequestPayload(BaseModel):
   session_id: Optional[str] = Field(
       "default_pm_session", description="Mã phiên làm việc"
   )
+
+class TableEmbeddingPayload(BaseModel):
+    table_name: str = Field(..., min_length=1, description="Tên bảng dữ liệu")
+    chunk_text: str = Field(
+        ..., min_length=1, description="Đoạn văn bản chunk ngữ nghĩa của bảng"
+    )
+    embedding: Optional[List[float]] = Field(
+        None, description="Vector embedding; tự tạo từ chunk_text nếu không truyền"
+    )
 
 
 # ==========================================
@@ -209,50 +211,72 @@ def get_rag_document(document_name: str):
 
 
 # --- 5. Quản lý Semantic Profile (Text-to-SQL) ---
+@router.post(
+    "/table-embeddings",
+    summary="Đẩy đoạn embedding và chunk text của bảng từ Frontend lên Supabase",
+)
+def upsert_table_embedding(payload: TableEmbeddingPayload):
+    try:
+        embedding = payload.embedding
+        if embedding is None:
+            from script.embedding_service import GeminiEmbeddingService
+
+            embedding = GeminiEmbeddingService().generate(
+                payload.chunk_text, task_type="RETRIEVAL_DOCUMENT"
+            )
+
+        data_to_upsert = {
+            "table_name": payload.table_name,
+            "chunk_text": payload.chunk_text,
+            "embedding": embedding,
+        }
+
+        # Sử dụng phương thức upsert có sẵn trong SupabaseService
+        result = db.upsert("table_embeddings", data_to_upsert)
+
+        if not result:
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Không thể lưu embedding lên Supabase.",
+            )
+
+        return {
+            "status": "success",
+            "message": f"Đã đẩy embedding và chunk text cho bảng '{payload.table_name}' thành công lên Supabase.",
+            "data": result[0] if isinstance(result, list) and len(result) > 0 else data_to_upsert
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Lỗi khi đẩy table embedding lên Supabase")
+        raise HTTPException(
+            status_code=http_status.HTTP_502_BAD_GATEWAY,
+            detail=f"Lỗi hệ thống khi lưu embedding: {str(exc)}",
+        ) from exc
+
+
 @router.get(
-    "/semantic-profile/{table_name}",
-    summary="Lấy mô hình Semantic Profile của bảng dữ liệu",
+    "/table-embeddings",
+    summary="Lấy danh sách table_name và chunk_text để hiển thị trên Frontend",
 )
-def get_semantic_profile(table_name: str):
-  valid_tables = [
-      "nhan_vien",
-      "du_an",
-      "task",
-      "cham_cong",
-      "ot",
-      "nghi_phep",
-      "hanh_vi",
-      "bao_cao_ngay",
-  ]
-  if table_name not in valid_tables:
-    raise HTTPException(
-        status_code=404, detail="Bảng không tồn tại trong danh mục hệ thống!"
-    )
-
-  return {
-      "table_name": table_name,
-      "semantic_description": (
-          f"Semantic profile chuẩn cho bảng '{table_name}' phục vụ việc xác"
-          " định bảng ứng viên và đường dẫn join (join path) trong luồng"
-          " Text-to-SQL."
-      ),
-  }
-
-
-@router.put(
-    "/semantic-profile",
-    summary="Cập nhật Semantic Profile và đồng bộ đồ thị NetworkX",
-)
-def update_semantic_profile(payload: SemanticProfileUpdatePayload):
-  # Logic cập nhật cấu hình ngữ nghĩa và đồng bộ NetworkX Database Graph[cite: 1]
-  return {
-      "status": "success",
-      "message": (
-          f"Đã cập nhật profile cho bảng '{payload.table_name}' và đồng bộ thành"
-          " công với NetworkX schema graph!"
-      ),
-      "data": payload.dict(),
-  }
+def get_table_embeddings_for_frontend():
+    try:
+        records = db.select(
+            "table_embeddings",
+            columns="table_name, chunk_text",
+            
+        )
+        return {
+            "status": "success",
+            "total": len(records),
+            "data": records
+        }
+    except Exception as exc:
+        logger.exception("Không thể lấy dữ liệu table_embeddings")
+        raise HTTPException(
+            status_code=http_status.HTTP_502_BAD_GATEWAY,
+            detail="Không thể lấy danh sách table embeddings từ Supabase.",
+        ) from exc
 
 
 # --- 6. AI Chatbot Toàn hệ thống ---

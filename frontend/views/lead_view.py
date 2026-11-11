@@ -9,7 +9,7 @@ from api_client import (
 from views.attendance_view import render_attendance_view
 from views.behavior_view import render_behavior_view
 from views.task_detail_view import render_task_detail
-from views.chatbot_client import ask_chatbot
+from views.chatbot_client import render_chatbot
 
 # Định nghĩa URL Backend cho Team Lead
 API_BASE_URL = f"{BACKEND_BASE_URL}/api/lead"
@@ -592,40 +592,12 @@ def render_lead_view():
   # 6. Menu: AI Chatbot Nghiệp vụ
   # ---------------------------------------------------------
   elif menu == "💬 AI Chatbot Nghiệp vụ":
-    st.subheader("💬 AI Chatbot Trưởng nhóm (Text-to-SQL)")
-    if "lead_messages" not in st.session_state:
-      st.session_state.lead_messages = [{
-          "role": "assistant",
-          "content": (
-              "Xin chào Trưởng nhóm! Tôi có thể hỗ trợ bạn phân tích dữ liệu"
-              " dự án thông qua API Text-to-SQL."
-          ),
-      }]
-
-    for message in st.session_state.lead_messages:
-      with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-    lead_prompt = st.chat_input("Nhập câu hỏi nghiệp vụ quản lý...")
-    if lead_prompt:
-      st.session_state.lead_messages.append(
-          {"role": "user", "content": lead_prompt}
-      )
-      with st.chat_message("user"):
-        st.markdown(lead_prompt)
-
-      with st.chat_message("assistant"):
-        with st.spinner("AI Agent đang sinh SQL và phân tích dữ liệu..."):
-          try:
-            result = ask_chatbot(lead_prompt)
-            lead_response = result["response"]
-          except Exception as e:
-            lead_response = (
-                f"⚠️ Luồng AI dừng do lỗi: {e}"
-            )
-
-          st.markdown(lead_response)
-
-      st.session_state.lead_messages.append(
-          {"role": "assistant", "content": lead_response}
-      )
+    render_chatbot(
+        title="💬 AI Chatbot Trưởng nhóm (Text-to-SQL)",
+        greeting=(
+            "Xin chào Trưởng nhóm! Tôi có thể hỗ trợ bạn phân tích dữ liệu"
+            " dự án thông qua API Text-to-SQL."
+        ),
+        input_placeholder="Nhập câu hỏi nghiệp vụ quản lý...",
+        state_prefix="lead_chat",
+    )

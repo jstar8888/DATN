@@ -6,7 +6,7 @@ from api_client import (
     API_BASE_URL as BACKEND_BASE_URL,
     authenticated_request,
 )
-from views.chatbot_client import ask_chatbot
+from views.chatbot_client import render_chatbot
 from views.behavior_view import render_behavior_view
 from views.task_detail_view import render_task_detail
 from datetime import date, datetime, time
@@ -580,94 +580,93 @@ def render_pm_view():
   # 5. Menu: Quản lý Semantic Profile
   # ---------------------------------------------------------
   elif menu == "⚙️ Quản lý Semantic Profile (Text-to-SQL)":
-    st.subheader("⚙️ Cấu hình Semantic Profile cho Text-to-SQL")
-    valid_tables = [
-        "nhan_vien",
-        "du_an",
-        "task",
-        "cham_cong",
-        "ot",
-        "nghi_phep",
-        "hanh_vi",
-        "bao_cao_ngay",
-    ]
-    selected_table = st.selectbox(
-        "Chọn bảng để xem/chỉnh sửa Semantic Profile", valid_tables
-    )
-
+    st.subheader("⚙️ Quản lý Semantic Table cho Text-to-SQL")
     try:
       res = authenticated_request(
-          "GET", f"{API_BASE_URL}/semantic-profile/{selected_table}"
+          "GET", f"{API_BASE_URL}/table-embeddings"
       )
-      current_desc = (
-          res.json().get("semantic_description", "")
-          if res.status_code == 200
-          else ""
-      )
+      table_embeddings = res.json().get("data", [])
     except Exception as exc:
-      st.error(f"Không thể tải Semantic Profile: {exc}")
-      current_desc = ""
+      st.error(f"Không thể tải semantic data từ Supabase: {exc}")
+      table_embeddings = None
 
-    new_semantic_desc = st.text_area(
-        "Mô tả ngữ nghĩa (Semantic Profile & Business Glossary)",
-        value=current_desc,
-        height=150,
-    )
+    if table_embeddings is not None:
+      if not table_embeddings:
+        st.info("Chưa có semantic data nào được lưu trên Supabase.")
+      else:
+        for table_embedding in table_embeddings:
+          table_name = table_embedding.get("table_name")
+          chunk_text = table_embedding.get("chunk_text", "")
+          if not table_name:
+            st.warning("Bỏ qua một bản ghi semantic không có tên bảng.")
+            continue
 
-    if st.button("Cập nhật Semantic Profile", type="primary"):
-      payload = {
-          "table_name": selected_table,
-          "semantic_description": new_semantic_desc,
-      }
-      try:
-        res = authenticated_request(
-            "PUT", f"{API_BASE_URL}/semantic-profile", json=payload
-        )
-        if res.status_code == 200:
-          st.success(res.json().get("message"))
-        else:
-          st.error("Lỗi cập nhật Semantic Profile.")
-      except Exception as e:
-        st.error(f"Lỗi kết nối API: {e}")
+          table_key = quote(str(table_name), safe="")
+          edit_state_key = f"pm_semantic_editing_{table_key}"
+          text_state_key = f"pm_semantic_chunk_{table_key}"
+          is_editing = st.session_state.get(edit_state_key, False)
+
+          st.markdown(f"#### `{table_name}`")
+          if st.button(
+              "Hủy chỉnh sửa" if is_editing else "Chỉnh sửa",
+              key=f"pm_semantic_edit_{table_key}",
+          ):
+            is_editing = not is_editing
+            st.session_state[edit_state_key] = is_editing
+            st.session_state[text_state_key] = (
+                st.session_state.get(text_state_key, chunk_text)
+                if is_editing
+                else chunk_text
+            )
+          elif not is_editing:
+            st.session_state[text_state_key] = chunk_text
+
+          st.text_area(
+              "Chunk text",
+              key=text_state_key,
+              height=220,
+              disabled=not is_editing,
+          )
+
+          if st.button(
+              "Đẩy dữ liệu lên Supabase",
+              type="primary",
+              key=f"pm_semantic_push_{table_key}",
+          ):
+            try:
+              edited_chunk = st.session_state[text_state_key]
+              save_response = authenticated_request(
+                  "POST",
+                  f"{API_BASE_URL}/table-embeddings",
+                  json={
+                      "table_name": table_name,
+                      "chunk_text": edited_chunk,
+                  },
+              )
+              st.session_state[text_state_key] = edited_chunk
+              st.session_state[edit_state_key] = False
+              st.success(
+                  save_response.json().get(
+                      "message", f"Đã đẩy semantic data của bảng {table_name}."
+                  )
+              )
+            except Exception as exc:
+              st.error(f"Không thể đẩy dữ liệu của bảng {table_name}: {exc}")
+
+          st.divider()
 
   # ---------------------------------------------------------
   # 6. Menu: AI Chatbot Toàn hệ thống
   # ---------------------------------------------------------
   elif menu == "💬 AI Chatbot Toàn hệ thống":
-    st.subheader("💬 AI Chatbot Quản trị Cấp cao")
-    if "pm_messages" not in st.session_state:
-      st.session_state.pm_messages = [
-          {
-              "role": "assistant",
-              "content": (
-                  "Xin chào PM! Tôi có thể hỗ trợ bạn tra cứu toàn hệ thống"
-                  " bằng Text-to-SQL kết hợp RAG."
-              ),
-          }
-      ]
-
-    for message in st.session_state.pm_messages:
-      with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-    pm_prompt = st.chat_input(
-        "Tra cứu thông tin toàn hệ thống bằng ngôn ngữ tự nhiên..."
+    render_chatbot(
+        title="💬 AI Chatbot Quản trị Cấp cao",
+        greeting=(
+            "Xin chào PM! Tôi có thể hỗ trợ bạn tra cứu toàn hệ thống"
+            " bằng Text-to-SQL kết hợp RAG."
+        ),
+        input_placeholder=(
+            "Tra cứu thông tin toàn hệ thống bằng ngôn ngữ tự nhiên..."
+        ),
+        state_prefix="pm_chat",
     )
-    if pm_prompt:
-      st.session_state.pm_messages.append({"role": "user", "content": pm_prompt})
-      with st.chat_message("user"):
-        st.markdown(pm_prompt)
-
-      with st.chat_message("assistant"):
-        with st.spinner("AI đang xử lý hệ thống qua API..."):
-          try:
-            result = ask_chatbot(pm_prompt)
-            pm_response = result["response"]
-          except Exception as e:
-            pm_response = f"⚠️ Luồng AI dừng do lỗi: {e}"
-
-          st.markdown(pm_response)
-
-      st.session_state.pm_messages.append(
-          {"role": "assistant", "content": pm_response}
-      )
