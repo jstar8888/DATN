@@ -17,17 +17,11 @@ load_dotenv()
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 logger = logging.getLogger(__name__)
 db = SupabaseService()
-ROLE_LEVELS = {
-    "Member": "Member",
-    "Team Lead": "Team Lead",
-    "Project Manager (PM)": "Project Manager",
-}
 
 
 class LoginRequest(BaseModel):
-    user_id: str
+    employee_name: str
     password: str
-    role: str
 
 
 def convert_name_to_email(full_name: str) -> str:
@@ -111,52 +105,12 @@ def require_role(*allowed_roles: str):
     return check_role
 
 
-@router.get("/employees")
-def get_employees_by_role(role: str):
-    system_level = ROLE_LEVELS.get(role)
-    if system_level is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Vai trò không hợp lệ.",
-        )
-
-    employees = db.select(
-        "employee",
-        columns="auth_uuid, employee_name, position",
-        filters={"system_level": system_level},
-        order_by="employee_name",
-    )
-    return employees
-
-
 @router.post("/login")
 def login(payload: LoginRequest):
-    system_level = ROLE_LEVELS.get(payload.role)
-    if system_level is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Vai trò không hợp lệ.",
-        )
-
-    employees = db.select(
-        "employee",
-        columns=(
-            "auth_uuid, employee_name, position, department, system_level"
-        ),
-        filters={"auth_uuid": payload.user_id},
-        limit=1,
-    )
-    if not employees or employees[0].get("system_level") != system_level:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Tài khoản không thuộc vai trò đã chọn.",
-        )
-
-    employee = employees[0]
     try:
         auth_response = _supabase_auth_client().auth.sign_in_with_password(
             {
-                "email": convert_name_to_email(employee["employee_name"]),
+                "email": convert_name_to_email(payload.employee_name),
                 "password": payload.password,
             }
         )
@@ -178,18 +132,8 @@ def login(payload: LoginRequest):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Tên tài khoản hoặc mật khẩu không chính xác.",
         )
-    if str(auth_response.user.id) != employee["auth_uuid"]:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Tài khoản Supabase không khớp với nhân viên đã chọn.",
-        )
 
     return {
         "access_token": auth_response.session.access_token,
-        "employee": {
-            "employee_name": employee["employee_name"],
-            "position": employee["position"],
-            "department": employee["department"],
-            "system_level": employee["system_level"],
-        },
+        "employee_name": payload.employee_name,
     }

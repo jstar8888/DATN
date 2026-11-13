@@ -1,12 +1,12 @@
 import json
 import re
-from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 # 1. Thay đổi thư viện import LLM sang Ollama
 from langchain_ollama import ChatOllama
 from langchain_google_genai import ChatGoogleGenerativeAI
+from database.supabase_general_service import SupabaseService
 from utils.event_bus import global_event_bus
 from utils.llm_usage import extract_token_usage
 
@@ -41,7 +41,7 @@ class SQLGraphAgent:
   def __init__(
       self,
       json_config_path: str = "table_relationships_and_paths.json",
-      semantic_profiles_path: str | None = None,
+      supabase_service: SupabaseService | None = None,
   ):
 
     self.llm = ChatGoogleGenerativeAI(
@@ -63,36 +63,41 @@ class SQLGraphAgent:
     """
     self.json_config_path = json_config_path
     self.graph_path_resolver = None
-    profiles_path = (
-        Path(semantic_profiles_path)
-        if semantic_profiles_path
-        else Path(__file__).resolve().parents[1]
-        / "script"
-        / "table_semantic_profiles.json"
-    )
-    with profiles_path.open("r", encoding="utf-8") as profiles_file:
-      profiles_data = json.load(profiles_file)
-    self.table_profiles = {
-        profile["table_name"]: profile
-        for profile in profiles_data["tables"]
-    }
+    self.supabase_service = supabase_service
 
-  def _get_semantic_context(self, candidate_tables: list[str]) -> list[dict]:
-    missing_tables = [
-        table_name
-        for table_name in candidate_tables
-        if table_name not in self.table_profiles
-    ]
-    if missing_tables:
-      raise ValueError(
-          "Không tìm thấy semantic profile cho bảng: "
-          + ", ".join(missing_tables)
+  def _get_semantic_context(
+      self, candidate_tables: list[str]
+  ) -> list[dict[str, str]]:
+    supabase_service = self.supabase_service
+    if supabase_service is None:
+      supabase_service = SupabaseService()
+      self.supabase_service = supabase_service
+
+    semantic_context = []
+    missing_tables = []
+    for table_name in candidate_tables:
+      records = supabase_service.select(
+          "table_embeddings",
+          columns="table_name, chunk_text",
+          filters={"table_name": table_name},
+          limit=1,
+      )
+      if not records or not records[0].get("chunk_text"):
+        missing_tables.append(table_name)
+        continue
+      semantic_context.append(
+          {
+              "table_name": records[0]["table_name"],
+              "chunk_text": records[0]["chunk_text"],
+          }
       )
 
-    return [
-        self.table_profiles[table_name]
-        for table_name in candidate_tables
-    ]
+    if missing_tables:
+      raise ValueError(
+          "Không tìm thấy semantic chunk trên Supabase cho bảng: "
+          + ", ".join(missing_tables)
+      )
+    return semantic_context
 
   def process(self, user_question: str, run_id: str | None = None) -> dict:
     from tools.graph_path_resolver import GraphPathResolver
@@ -130,8 +135,6 @@ class SQLGraphAgent:
           agent="sql_expert",
       )
 
-    # Gửi schema ngữ nghĩa đầy đủ của các bảng đã truy xuất cho LLM.
-    semantic_context = self._get_semantic_context(candidate_tables)
     # 2. Dùng helper để tìm đường join giữa các bảng
     if self.graph_path_resolver is None:
       self.graph_path_resolver = GraphPathResolver(self.json_config_path)
@@ -157,6 +160,10 @@ class SQLGraphAgent:
             agent="sql_expert",
         )
       raise
+    # Lấy semantic chunk cho cả bảng candidate và bảng trung gian trên path.
+    semantic_context = self._get_semantic_context(
+        join_blueprint["candidate_tables"]
+    )
     if run_id:
       global_event_bus.publish_event(
           run_id,
@@ -176,7 +183,7 @@ class SQLGraphAgent:
     "nghiệp vụ, đúng schema và nhất quán về cấu trúc.\n\n"
 
     "I. NGUỒN THÔNG TIN\n"
-    "- Semantic profiles là nguồn xác định ý nghĩa bảng, cột, grain, "
+    "- Semantic chunks từ Supabase là nguồn xác định ý nghĩa bảng, cột, grain, "
     "quy tắc nghiệp vụ và cách diễn giải thuật ngữ.\n"
     "- Join blueprint là nguồn xác định các đường JOIN và điều kiện "
     "nối bảng hợp lệ.\n"
@@ -285,7 +292,7 @@ class SQLGraphAgent:
     "- Chỉ trả về SQL hoặc một trong các marker được quy định trên. "
     "Tuyệt đối không sinh lời giải thích.\n\n"
 
-    f"Semantic profiles:\n"
+    f"Semantic chunks:\n"
     f"{json.dumps(semantic_context, ensure_ascii=False, indent=2)}\n\n"
     f"Join blueprint:\n"
     f"{json.dumps(join_blueprint, ensure_ascii=False, indent=2)}"

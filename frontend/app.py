@@ -1,4 +1,6 @@
+import json
 import os
+from pathlib import Path
 
 import requests
 import streamlit as st
@@ -8,6 +10,8 @@ from views.pm_view import render_pm_view
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 AUTH_API_URL = f"{API_BASE_URL}/api/auth"
+ACCOUNT_FILE = Path(__file__).resolve().parent / "static" / "account.json"
+ACCOUNT_ROLE_KEYS = {"Project Manager (PM)": "Projecrt Manager"}
 
 
 def call_auth_api(method, path, **kwargs):
@@ -25,6 +29,22 @@ def call_auth_api(method, path, **kwargs):
             detail = response.text
         raise RuntimeError(str(detail))
     return response
+
+
+def load_accounts(role):
+    try:
+        with ACCOUNT_FILE.open(encoding="utf-8") as account_file:
+            accounts_by_role = json.load(account_file)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Không thể đọc danh sách tài khoản: {exc}") from exc
+
+    account_group = ACCOUNT_ROLE_KEYS.get(role, role)
+    accounts = accounts_by_role.get(account_group)
+    if not isinstance(accounts, list) or not all(
+        isinstance(name, str) and name.strip() for name in accounts
+    ):
+        raise RuntimeError("Dữ liệu danh sách tài khoản không hợp lệ.")
+    return accounts
 
 
 # Cấu hình trang Streamlit
@@ -160,32 +180,23 @@ elif (
         )
         st.markdown("<br>", unsafe_allow_html=True)
 
-        employee_fetch_failed = False
         try:
-            employees_list = call_auth_api(
-                "GET", "/employees", params={"role": role}
-            ).json()
+            employee_names = load_accounts(role)
         except RuntimeError as exc:
             st.error(f"Không thể tải danh sách tài khoản: {exc}")
-            employees_list = []
-            employee_fetch_failed = True
+            employee_names = []
 
-        if not employees_list:
-            if not employee_fetch_failed:
-                st.warning("Không tìm thấy tài khoản nào phù hợp.")
+        if not employee_names:
+            st.warning("Không tìm thấy tài khoản nào phù hợp.")
             if st.button("Quay lại", use_container_width=True):
                 st.session_state.logging_in_role = None
                 st.rerun()
         else:
-            account_labels = [
-                f"{emp['employee_name']} - {emp['position']}" for emp in employees_list
-            ]
-
             with st.form("login_form"):
                 selected_display_name = st.selectbox(
                     "Chọn tài khoản nhân sự",
-                    options=range(len(employees_list)),
-                    format_func=lambda index: account_labels[index],
+                    options=range(len(employee_names)),
+                    format_func=lambda index: employee_names[index],
                 )
                 password = st.text_input("Mật khẩu", type="password")
 
@@ -207,24 +218,19 @@ elif (
                     st.rerun()
 
                 if submitted:
-                    chosen_emp = employees_list[selected_display_name]
-
                     try:
                         login_data = call_auth_api(
                             "POST",
                             "/login",
                             json={
-                                "user_id": chosen_emp["auth_uuid"],
+                                "employee_name": employee_names[selected_display_name],
                                 "password": password,
-                                "role": role,
                             },
                         ).json()
 
                         st.session_state.access_token = login_data["access_token"]
                         st.session_state.user_session = {
-                            "name": login_data["employee"]["employee_name"],
-                            "position": login_data["employee"]["position"],
-                            "department": login_data["employee"]["department"],
+                            "name": login_data["employee_name"],
                         }
                         st.session_state.selected_role = role
                         st.session_state.logging_in_role = None
@@ -256,10 +262,7 @@ else:
 
     with st.sidebar:
         st.markdown("### 🏢 Hệ thống HR-AI")
-        st.info(
-            f"Xin chào: **{user_info['name']}**\nVị trí:"
-            f" **{user_info['position']}**\nQuyền: **{role}**"
-        )
+        st.info(f"Xin chào: **{user_info['name']}**\nQuyền: **{role}**")
 
         st.markdown("---")
         if st.button("🚪 Đăng xuất / Đổi tài khoản", use_container_width=True):

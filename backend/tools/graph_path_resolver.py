@@ -40,22 +40,26 @@ class GraphPathResolver:
   def resolve_join_paths(self, candidate_tables: list) -> dict:
     """Nhận danh sách bảng candidate từ bước Vector Retrieval và tìm đường đi
 
-    bằng cách xét TOÀN BỘ CÁC TỔ HỢP CẶP BẢNG (Combinations), đảm bảo không bỏ sót
-    bất kỳ mối quan hệ trực tiếp quan trọng nào (như task <-> employee).
+    bằng cách xét TOÀN BỘ CÁC TỔ HỢP CẶP BẢNG (Combinations). Các bảng
+    trung gian trên đường đi cũng được thêm vào candidate_tables nếu còn thiếu.
     """
     if not candidate_tables:
       return {"status": "error", "message": "Danh sách bảng trống."}
+
+    candidate_tables = list(dict.fromkeys(candidate_tables))
 
     # Nếu chỉ có 1 bảng, không cần JOIN
     if len(candidate_tables) == 1:
       return {
           "candidate_tables": candidate_tables,
+          "path_tables": [],
           "resolved_joins": [],
           "graph_traversal_steps": f"Chỉ có 1 bảng [{candidate_tables[0]}], không cần JOIN.",
       }
 
     resolved_joins = []
     explanations = []
+    expanded_tables = list(candidate_tables)
 
     # SỬ DỤNG COMBINATIONS: Xét mọi cặp bảng có thể có trong danh sách candidate, 
     # bất kể thứ tự đứng trước hay sau (ví dụ: task và employee sẽ luôn được xét trực tiếp với nhau).
@@ -68,6 +72,9 @@ class GraphPathResolver:
         path = nx.shortest_path(
             self.path_graph, source=source_table, target=target_table
         )
+        for table_name in path:
+          if table_name not in expanded_tables:
+            expanded_tables.append(table_name)
         self._extract_edges_from_path(path, resolved_joins, explanations)
       except nx.NetworkXNoPath:
         explanations.append(
@@ -78,7 +85,12 @@ class GraphPathResolver:
       explanations.append("Không tìm thấy đường nối hợp lệ nào giữa các bảng candidate.")
 
     return {
-        "candidate_tables": candidate_tables,
+        "candidate_tables": expanded_tables,
+        "path_tables": [
+            table_name
+            for table_name in expanded_tables
+            if table_name not in candidate_tables
+        ],
         "resolved_joins": resolved_joins,
         "graph_traversal_steps": " | ".join(explanations),
     }

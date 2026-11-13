@@ -23,7 +23,6 @@ db = SupabaseService()                 # Khởi tạo Service kết nối Supaba
 config_dir = Path(__file__).resolve().parents[1] / "config"
 sql_expert = SQLGraphAgent(
     str(config_dir / "table_relationships_and_paths.json"),
-    semantic_profiles_path=str(config_dir / "table_semantic_profiles.json"),
 )
 sql_executor = SQLExecutorAgent()
 rag_search = RAGSearchAgent()
