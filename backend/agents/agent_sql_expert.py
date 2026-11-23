@@ -3,9 +3,7 @@ import re
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
-# 1. Thay đổi thư viện import LLM sang Ollama
-from langchain_ollama import ChatOllama
-from langchain_google_genai import ChatGoogleGenerativeAI
+from agents.configurable_llm import ConfigurableChatModel
 from database.supabase_general_service import SupabaseService
 from utils.event_bus import global_event_bus
 from utils.llm_usage import extract_token_usage
@@ -43,24 +41,11 @@ class SQLGraphAgent:
       json_config_path: str = "table_relationships_and_paths.json",
       supabase_service: SupabaseService | None = None,
   ):
-
-    self.llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",  # Hoặc gemini-2.5-pro tùy nhu cầu
-    temperature=0.1,
-    
-)
-    
-    # 2. Khởi tạo ChatOllama thay vì ChatGoogleGenerativeAI
-    # model: Tên mô hình bạn đã tải về trên Ollama (ví dụ: "llama3", "mistral", "qwen2.5")
-    # base_url: Địa chỉ Ollama chạy ngầm (mặc định là http://localhost:11434)
-    """
-    self.llm = ChatOllama(
-        model="qwen2.5-coder:7b",  # Thay thế bằng tên mô hình bạn muốn sử dụng
+    self.llm = ConfigurableChatModel(
+        "sql_expert",
         temperature=0.1,
-        base_url="http://localhost:11434",
         reasoning=False,
     )
-    """
     self.json_config_path = json_config_path
     self.graph_path_resolver = None
     self.supabase_service = supabase_service

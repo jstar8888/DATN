@@ -8,6 +8,10 @@ from database.supabase_general_service import SupabaseService
 from datetime import date, datetime, time
 from datamodel.schema import EmployeeResponse, ProjectCreate, ProjectResponse
 from routers.api_authentication import require_role
+from agents.configurable_llm import (
+    get_agent_model_settings,
+    update_agent_model_settings,
+)
 
 db = SupabaseService()
 logger = logging.getLogger(__name__)
@@ -51,11 +55,42 @@ class TableEmbeddingPayload(BaseModel):
     )
 
 
+class AgentModelSettingsPayload(BaseModel):
+    providers: Dict[str, Literal["gemini", "ollama"]]
+
+
 # ==========================================
 # 2. API ENDPOINTS CHO PM
 # ==========================================
 
+@router.get("/agent-models", summary="Lấy cấu hình model của các AI agent")
+def read_agent_model_settings():
+    try:
+        return {"agents": get_agent_model_settings()}
+    except RuntimeError as exc:
+        logger.exception("Không thể đọc cấu hình model agent")
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Không thể đọc cấu hình model agent.",
+        ) from exc
 
+
+@router.put("/agent-models", summary="Cập nhật cấu hình model của các AI agent")
+def save_agent_model_settings(payload: AgentModelSettingsPayload):
+    try:
+        agents = update_agent_model_settings(payload.providers)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except OSError as exc:
+        logger.exception("Không thể cập nhật cấu hình model agent")
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Không thể cập nhật cấu hình model agent.",
+        ) from exc
+    return {"agents": agents}
 
 
 # --- 3. AI-Agent Tổng hợp Tiến độ ---

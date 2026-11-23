@@ -3,8 +3,7 @@ import json
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_ollama import ChatOllama
+from agents.configurable_llm import ConfigurableChatModel
 from utils.event_bus import global_event_bus
 from utils.llm_usage import extract_token_usage
 from agents.guardrails import HRSemanticScopeDefinition
@@ -12,26 +11,12 @@ from agents.guardrails import HRSemanticScopeDefinition
 
 class RouterAgent:
 
-    def __init__(self, model_name: str = "qwen2.5-coder:7b"):
-
-        '''''
-        self.llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",  # Hoặc gemini-2.5-pro tùy nhu cầu
+    def __init__(self):
+        self.llm = ConfigurableChatModel(
+            "router",
             temperature=0.1,
-            
-        )
-        '''''
-        
-        
-        self.llm = ChatOllama(
-            model=model_name,
-            temperature=0.1,
-            base_url="http://localhost:11434",
-           # num_predict=5,
-            keep_alive="10m",
             reasoning=False,
         )
-        
 
     def route(
         self, user_question: str, run_id: str | None = None, semantic_context: str | None = None

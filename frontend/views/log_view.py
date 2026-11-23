@@ -131,6 +131,8 @@ def render_log_view():
             function eventLabel(step) {{
               const labels = {{
                 run: "Câu hỏi",
+                query_rewriter: "Viết lại câu hỏi",
+                output_guardrail: "Kiểm tra an toàn câu trả lời",
                 router: "Phân loại câu hỏi",
                 route: "Chọn nhánh xử lý",
                 sql: "Luồng SQL",
@@ -149,6 +151,8 @@ def render_log_view():
 
             const agentLabels = {{
               orchestrator: "Điều phối",
+              query_rewriter: "Query Writer Agent",
+              guardrails: "Guardrail Agent",
               router: "Router Agent",
               sql_expert: "SQL Expert Agent",
               sql_executor: "SQL Executor Agent",
@@ -359,11 +363,43 @@ def render_log_view():
                   question.textContent = "Câu hỏi: " + details.question;
                   card.appendChild(question);
                 }}
+                if (
+                  event.step === "query_rewriter" &&
+                  event.status === "completed"
+                ) {{
+                  const rewrittenQuestion = details.rewritten_question ||
+                    details.clean_question;
+                  if (rewrittenQuestion) {{
+                    const question = document.createElement("p");
+                    question.textContent =
+                      "Câu hỏi sau khi viết lại: " + rewrittenQuestion;
+                    card.appendChild(question);
+                  }}
+                }}
                 if (details.message) {{
                   const message = document.createElement("p");
                   if (event.status === "failed") message.className = "error";
                   message.textContent = details.message;
                   card.appendChild(message);
+                }}
+                if (
+                  event.step === "output_guardrail" &&
+                  event.status === "completed"
+                ) {{
+                  const guardrailResult = document.createElement("p");
+                  const actionLabels = {{
+                    allow: "Được phép",
+                    block: "Đã chặn",
+                    review: "Cần xem xét",
+                  }};
+                  guardrailResult.textContent =
+                    "Kết quả kiểm tra: " +
+                    (actionLabels[details.action] || details.action);
+                  if (details.reason) {{
+                    guardrailResult.textContent +=
+                      " · Lý do: " + details.reason;
+                  }}
+                  card.appendChild(guardrailResult);
                 }}
                 if (event.step === "rag_search" && event.status === "completed") {{
                   const chunkSummary = document.createElement("p");

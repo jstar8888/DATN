@@ -63,6 +63,7 @@ def render_pm_view():
           "⚙️ Quản lý Semantic Profile (Text-to-SQL)",
       ),
       ("💬 AI Chatbot Toàn hệ thống", "💬 AI Chatbot Toàn hệ thống"),
+      ("🧠 Cấu hình AI Agent", "🧠 Cấu hình AI Agent"),
   ]
 
   for label, val in pm_menu_options:
@@ -670,3 +671,79 @@ def render_pm_view():
         ),
         state_prefix="pm_chat",
     )
+  elif menu == "🧠 Cấu hình AI Agent":
+    st.subheader("🧠 Cấu hình model cho AI Agent")
+    st.caption(
+        "Chọn Gemini hoặc Ollama cho từng agent. Thay đổi có hiệu lực "
+        "ngay sau khi lưu."
+    )
+    try:
+      response = authenticated_request(
+          "GET", f"{API_BASE_URL}/agent-models"
+      )
+      settings = response.json()
+      if not isinstance(settings, dict):
+        raise RuntimeError("Backend trả về cấu hình agent không hợp lệ.")
+      agents = settings.get("agents", [])
+      if (
+          not isinstance(agents, list)
+          or not agents
+          or any(not isinstance(agent, dict) for agent in agents)
+      ):
+        raise RuntimeError("Backend không trả về danh sách agent hợp lệ.")
+    except (RuntimeError, ValueError) as exc:
+      st.error(f"Không thể tải cấu hình model: {exc}")
+    else:
+      provider_labels = {
+          "gemini": "Gemini",
+          "ollama": "Ollama",
+      }
+      with st.form("pm_agent_model_settings"):
+        providers = {}
+        for agent in agents:
+          options = agent.get("options", [])
+          option_providers = [
+              option.get("provider")
+              for option in options
+              if option.get("provider") in provider_labels
+          ]
+          if not option_providers or agent.get("provider") not in option_providers:
+            st.error(
+                f"Cấu hình provider không hợp lệ cho {agent.get('label', agent.get('id'))}."
+            )
+            continue
+          model_by_provider = {
+              option["provider"]: option.get("model", "")
+              for option in options
+              if option.get("provider") in provider_labels
+          }
+          selected_provider = st.selectbox(
+              agent.get("label", agent["id"]),
+              options=option_providers,
+              index=option_providers.index(agent["provider"]),
+              format_func=lambda provider, models=model_by_provider: (
+                  f"{provider_labels[provider]} "
+                  f"({models.get(provider, '')})"
+              ),
+              key=f"agent_model_provider_{agent['id']}",
+          )
+          providers[agent["id"]] = selected_provider
+
+        submitted = st.form_submit_button(
+            "Lưu cấu hình model", type="primary"
+        )
+      if submitted:
+        if len(providers) != len(agents):
+          st.error("Không thể lưu do cấu hình agent chưa đầy đủ.")
+        else:
+          try:
+            authenticated_request(
+                "PUT",
+                f"{API_BASE_URL}/agent-models",
+                json={"providers": providers},
+            )
+          except RuntimeError as exc:
+            st.error(f"Không thể lưu cấu hình model: {exc}")
+          else:
+            st.success("Đã lưu cấu hình model cho các agent.")
+            st.rerun()

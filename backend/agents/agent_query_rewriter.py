@@ -1,16 +1,14 @@
 from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_ollama import ChatOllama
+from agents.configurable_llm import ConfigurableChatModel
 from utils.event_bus import global_event_bus
 from utils.llm_usage import extract_token_usage
 
 class QueryRewriterAgent:
-    def __init__(self, model_name: str = "qwen2.5-coder:7b"):
-        self.llm = ChatOllama(
-            model=model_name,
+    def __init__(self):
+        self.llm = ConfigurableChatModel(
+            "query_rewriter",
             temperature=0.1,
-            base_url="http://localhost:11434",
-            keep_alive="10m",
             reasoning=False,
         )
 

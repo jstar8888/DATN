@@ -2,31 +2,19 @@
 import json
 from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_ollama import ChatOllama
+from agents.configurable_llm import ConfigurableChatModel
 from utils.event_bus import global_event_bus
 from utils.llm_usage import extract_token_usage
 
 
 class SynthesizerAgent:
 
-  def __init__(self, model_name: str = "qwen2.5-coder:7b"):
-      # 2. Khởi tạo ChatOllama, model_name ở đây là tên mô hình bạn đã tải về Ollama
-      
-      self.llm = ChatGoogleGenerativeAI(
-          model="gemini-2.5-flash",  # Hoặc gemini-2.5-pro tùy nhu cầu
+  def __init__(self):
+      self.llm = ConfigurableChatModel(
+          "synthesizer",
           temperature=0.1,
-          
-      )
-      
-      '''''
-      self.llm = ChatOllama(
-          model=model_name, 
-          temperature=0.1,
-          base_url="http://localhost:11434",
           reasoning=False,
       )
-      '''''
 
   def synthesize(
       self, user_question: str, raw_data, run_id: str | None = None

@@ -2,7 +2,7 @@
 import json
 from typing import Any, Dict, Optional
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
+from agents.configurable_llm import ConfigurableChatModel
 from utils.event_bus import global_event_bus
 from utils.llm_usage import extract_token_usage
 
@@ -10,10 +10,11 @@ from utils.llm_usage import extract_token_usage
 class EvaluateAgent:
     """Agent chịu trách nhiệm đánh giá, thẩm định dữ liệu dựa trên command, rag_data và sql_data."""
 
-    def __init__(self, model_name: str = "gemini-2.5-flash"):
-        self.llm = ChatGoogleGenerativeAI(
-            model=model_name,
+    def __init__(self):
+        self.llm = ConfigurableChatModel(
+            "evaluate",
             temperature=0.1,
+            reasoning=False,
         )
 
     def evaluate(

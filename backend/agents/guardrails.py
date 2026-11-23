@@ -150,6 +150,10 @@ class GuardrailConfig:
         "thông tin nhạy cảm hoặc thông tin nội bộ."
     )
 
+    output_review_message: str = (
+        "Câu trả lời chưa thể được xác nhận an toàn nên tôi chưa thể cung cấp."
+    )
+
 
 # ============================================================
 # 4. HELPER FUNCTIONS
@@ -416,10 +420,13 @@ def output_guardrail_node(
     update = {
         "guardrail_output_action": result.action.value,
         "guardrail_output_reason": result.reason,
+        "guardrail_output_rule": result.matched_rule,
     }
 
     if result.action == GuardrailAction.BLOCK:
         update["final_answer"] = config.output_blocked_message
+    elif result.action == GuardrailAction.REVIEW:
+        update["final_answer"] = config.output_review_message
 
     return update
 

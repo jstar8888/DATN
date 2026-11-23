@@ -9,7 +9,9 @@ from agents.agent_synthesizer import SynthesizerAgent
 from agents.agent_query_rewriter import QueryRewriterAgent  # Agent viết lại câu hỏi theo ngữ cảnh
 from agents.guardrails import (
     input_guardrail_node,
+    output_guardrail_node as evaluate_output_guardrail,
     route_after_input_guardrail,
+    route_after_output_guardrail,
 )
 from database.supabase_general_service import SupabaseService  # Dùng để gọi DB lấy/lưu lịch sử
 from langgraph.graph import END, StateGraph
@@ -49,6 +51,9 @@ class HRGraphState(TypedDict, total=False):
   guardrail_stage: str
   guardrail_reason: str
   guardrail_rule: str | None
+  guardrail_output_action: str
+  guardrail_output_reason: str
+  guardrail_output_rule: str | None
   semantic_system_context: str
 
 
@@ -114,15 +119,6 @@ def query_rewriter_node(state: HRGraphState) -> dict[str, Any]:
       run_id=run_id,
   )
 
-  if run_id:
-    global_event_bus.publish_event(
-        run_id,
-        "query_rewriter",
-        "completed",
-        {"clean_question": clean_question},
-        agent="query_rewriter",
-    )
-
   # Trả về câu hỏi đã làm sạch để các node sau sử dụng
   return {"clean_question": clean_question, "title": title}
 
@@ -171,6 +167,44 @@ def guardrail_node(state: HRGraphState):
             "stage": result["guardrail_stage"],
             "reason": result["guardrail_reason"],
             "matched_rule": result["guardrail_rule"],
+        },
+        agent="guardrails",
+    )
+  return result
+
+
+def output_guardrail_node(state: HRGraphState) -> dict[str, Any]:
+  run_id = state.get("run_id")
+  if run_id:
+    global_event_bus.publish_event(
+        run_id,
+        "output_guardrail",
+        "started",
+        {"message": "Đang kiểm tra an toàn câu trả lời."},
+        agent="guardrails",
+    )
+  try:
+    result = evaluate_output_guardrail(state)
+  except Exception:
+    if run_id:
+      global_event_bus.publish_event(
+          run_id,
+          "output_guardrail",
+          "failed",
+          {"message": "Không thể kiểm tra an toàn câu trả lời."},
+          agent="guardrails",
+      )
+    raise
+
+  if run_id:
+    global_event_bus.publish_event(
+        run_id,
+        "output_guardrail",
+        "completed",
+        {
+            "action": result["guardrail_output_action"],
+            "reason": result["guardrail_output_reason"],
+            "matched_rule": result["guardrail_output_rule"],
         },
         agent="guardrails",
     )
@@ -362,6 +396,7 @@ workflow = StateGraph(HRGraphState)
 # Thêm các Node vào đồ thị
 workflow.add_node("query_rewriter", query_rewriter_node) # Node mới đầu tiên
 workflow.add_node("input_guardrail", guardrail_node)
+workflow.add_node("output_guardrail", output_guardrail_node)
 workflow.add_node("router", router_node)
 workflow.add_node("sql_processor", sql_node)
 workflow.add_node("rag_processor", rag_node)
@@ -393,13 +428,13 @@ def decide_next_step(state: HRGraphState):
       agent="router",
   )
   if state["intent"] == "OUT_OF_SCOPE":
-    return "save_history"  # Nếu bị ngoài phạm vi vẫn lưu lại lịch sử hỏi-đáp từ chối
+    return "output_guardrail"
   return selected_nodes if state["intent"] == "HYBRID" else selected_nodes[0]
 
 
 def decide_after_sql(state: HRGraphState):
   if state["intent"] == "SQL" and state.get("final_answer"):
-    return "save_history"
+    return "output_guardrail"
   return "synthesizer"
 
 
@@ -409,7 +444,11 @@ workflow.add_edge("query_rewriter", "input_guardrail")
 workflow.add_conditional_edges(
     "input_guardrail",
     route_after_input_guardrail,
-    {"router": "router", "stop": "save_history", "review": "save_history"},
+    {
+        "router": "router",
+        "stop": "output_guardrail",
+        "review": "output_guardrail",
+    },
 )
 
 workflow.add_conditional_edges(
@@ -418,6 +457,7 @@ workflow.add_conditional_edges(
     {
         "sql_processor": "sql_processor",
         "rag_processor": "rag_processor",
+        "output_guardrail": "output_guardrail",
         "save_history": "save_history",
     },
 )
@@ -425,11 +465,19 @@ workflow.add_conditional_edges(
 workflow.add_conditional_edges(
     "sql_processor",
     decide_after_sql,
-    {"synthesizer": "synthesizer", "save_history": "save_history"},
+    {
+        "synthesizer": "synthesizer",
+        "output_guardrail": "output_guardrail",
+    },
 )
 
 workflow.add_edge("rag_processor", "synthesizer")
-workflow.add_edge("synthesizer", "save_history")
+workflow.add_edge("synthesizer", "output_guardrail")
+workflow.add_conditional_edges(
+    "output_guardrail",
+    route_after_output_guardrail,
+    {"end": "save_history", "stop": "save_history", "review": "save_history"},
+)
 workflow.add_edge("save_history", END)
 
 app = workflow.compile()

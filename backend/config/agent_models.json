@@ -1,0 +1,10 @@
+{
+  "agents": {
+    "query_rewriter": "ollama",
+    "router": "ollama",
+    "sql_expert": "gemini",
+    "synthesizer": "gemini",
+    "evaluate": "gemini",
+    "sql_validator": "gemini"
+  }
+}
