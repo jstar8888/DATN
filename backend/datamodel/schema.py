@@ -19,7 +19,7 @@ class EmployeeCreate(EmployeeBase):
 
 
 class EmployeeResponse(EmployeeBase):
-    id: Optional[int] = Field(None, description="ID số tự tăng (nếu có)")
+    #id: Optional[int] = Field(None, description="ID số tự tăng (nếu có)")
 
     class Config:
         from_attributes = True
@@ -127,7 +127,7 @@ class OvertimeCreate(OvertimeBase):
 
 
 class OvertimeResponse(OvertimeBase):
-    ot_id: Optional[str] = Field(None, description="Mã định danh bản ghi OT")
+    ot_id: Optional[int] = Field(None, description="Mã định danh bản ghi OT")
 
     class Config:
         from_attributes = True
@@ -178,7 +178,7 @@ class BehaviorCreate(BehaviorBase):
 
 
 class BehaviorResponse(BehaviorBase):
-    behavior_id: Optional[str] = Field(None, description="Mã định danh bản ghi hành vi")
+    behavior_id: Optional[int] = Field(None, description="Mã định danh bản ghi hành vi")
 
     class Config:
         from_attributes = True
@@ -202,7 +202,7 @@ class DailyWorkReportCreate(DailyWorkReportBase):
 
 
 class DailyWorkReportResponse(DailyWorkReportBase):
-    daily_report_id: Optional[str] = Field(None, description="Mã định danh báo cáo ngày")
+    daily_report_id: Optional[int] = Field(None, description="Mã định danh báo cáo ngày")
 
     class Config:
         from_attributes = True

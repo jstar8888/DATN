@@ -1,4 +1,4 @@
-from tools.supabase_executor import SupabaseExecutor
+from services.supabase_executor import SupabaseExecutor
 from utils.event_bus import global_event_bus
 
 

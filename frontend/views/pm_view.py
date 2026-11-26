@@ -1,5 +1,6 @@
 import json
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 from urllib.parse import quote
 from api_client import (
@@ -62,6 +63,7 @@ def render_pm_view():
           "⚙️ Quản lý Semantic Profile",
           "⚙️ Quản lý Semantic Profile (Text-to-SQL)",
       ),
+      ("🕸️ Quản lý Relationship", "🕸️ Quản lý Relationship"),
       ("💬 AI Chatbot Toàn hệ thống", "💬 AI Chatbot Toàn hệ thống"),
       ("🧠 Cấu hình AI Agent", "🧠 Cấu hình AI Agent"),
   ]
@@ -592,6 +594,27 @@ def render_pm_view():
       table_embeddings = None
 
     if table_embeddings is not None:
+      pending_new_table = st.session_state.pop(
+          "pm_semantic_pending_new_table", None
+      )
+      if pending_new_table:
+        new_table_index = next(
+            (
+                index
+                for index, table in enumerate(table_embeddings)
+                if table.get("table_name") == pending_new_table
+            ),
+            None,
+        )
+        if new_table_index is not None:
+          table_embeddings.append(table_embeddings.pop(new_table_index))
+
+      success_message = st.session_state.pop(
+          "pm_semantic_success_message", None
+      )
+      if success_message:
+        st.success(success_message)
+
       if not table_embeddings:
         st.info("Chưa có semantic data nào được lưu trên Supabase.")
       else:
@@ -656,8 +679,180 @@ def render_pm_view():
 
           st.divider()
 
+      if st.button(
+          "➕ Thêm bảng mới",
+          type="primary",
+          key="pm_semantic_add_table",
+      ):
+        st.session_state.pm_semantic_adding_table = True
+        st.session_state.pm_semantic_new_table_form_id = (
+            st.session_state.get("pm_semantic_new_table_form_id", 0) + 1
+        )
+        st.rerun()
+
+      if st.session_state.get("pm_semantic_adding_table", False):
+        form_id = st.session_state.pm_semantic_new_table_form_id
+        table_name_key = f"pm_semantic_new_table_name_{form_id}"
+        chunk_text_key = f"pm_semantic_new_chunk_{form_id}"
+        st.markdown(
+            '<div id="pm-semantic-new-table-form"></div>',
+            unsafe_allow_html=True,
+        )
+        st.subheader("Thêm bảng semantic mới")
+        with st.form(f"pm_semantic_new_table_form_{form_id}"):
+          new_table_name = st.text_input(
+              "Tên bảng",
+              key=table_name_key,
+          )
+          new_chunk_text = st.text_area(
+              "Chunk text",
+              height=220,
+              key=chunk_text_key,
+          )
+          save_new_table = st.form_submit_button(
+              "Lưu bảng mới",
+              type="primary",
+          )
+          cancel_new_table = st.form_submit_button("Hủy")
+
+        components.html(
+            """
+            <script>
+              const target = window.parent.document.getElementById(
+                "pm-semantic-new-table-form"
+              );
+              if (target) {
+                target.scrollIntoView({ behavior: "smooth", block: "start" });
+              }
+            </script>
+            """,
+            height=0,
+        )
+
+        if cancel_new_table:
+          st.session_state.pm_semantic_adding_table = False
+          st.rerun()
+        elif save_new_table:
+          normalized_table_name = new_table_name.strip()
+          if not normalized_table_name:
+            st.error("Vui lòng nhập tên bảng.")
+          elif not new_chunk_text.strip():
+            st.error("Vui lòng nhập nội dung semantic cho bảng.")
+          elif any(
+              str(table.get("table_name", "")).strip() == normalized_table_name
+              for table in table_embeddings
+          ):
+            st.error(f"Bảng `{normalized_table_name}` đã tồn tại.")
+          else:
+            try:
+              save_response = authenticated_request(
+                  "POST",
+                  f"{API_BASE_URL}/table-embeddings",
+                  json={
+                      "table_name": normalized_table_name,
+                      "chunk_text": new_chunk_text,
+                  },
+              )
+              st.session_state.pm_semantic_success_message = (
+                  save_response.json().get(
+                      "message",
+                      f"Đã thêm semantic data cho bảng {normalized_table_name}.",
+                  )
+              )
+              st.session_state.pm_semantic_pending_new_table = (
+                  normalized_table_name
+              )
+              st.session_state.pm_semantic_adding_table = False
+              st.rerun()
+            except Exception as exc:
+              st.error(
+                  f"Không thể thêm semantic data cho bảng "
+                  f"{normalized_table_name}: {exc}"
+              )
+
   # ---------------------------------------------------------
-  # 6. Menu: AI Chatbot Toàn hệ thống
+  # 6. Menu: Quản lý file relationship
+  # ---------------------------------------------------------
+  elif menu == "🕸️ Quản lý Relationship":
+    st.subheader("🕸️ Quản lý file Relationship giữa các bảng")
+    try:
+      response = authenticated_request(
+          "GET", f"{API_BASE_URL}/table-relationships"
+      )
+      relationship_data = response.json()
+      relationship_files = relationship_data.get("files", [])
+      active_relationship_file = relationship_data.get("active_file")
+      if (
+          not isinstance(relationship_files, list)
+          or any(not isinstance(filename, str) for filename in relationship_files)
+          or active_relationship_file not in relationship_files
+      ):
+        raise RuntimeError("Backend trả về danh sách file relationship không hợp lệ.")
+    except (RuntimeError, ValueError) as exc:
+      st.error(f"Không thể tải danh sách file relationship: {exc}")
+    else:
+      st.caption("Danh sách chỉ hiển thị tên file. Mỗi thời điểm chỉ áp dụng một file.")
+      for filename in relationship_files:
+        st.write(filename)
+      st.info(f"File đang áp dụng: {active_relationship_file}")
+
+      selected_relationship_file = st.selectbox(
+          "Chọn file relationship",
+          options=relationship_files,
+          index=relationship_files.index(active_relationship_file),
+          key="pm_relationship_selected_file",
+      )
+      if st.button(
+          "Áp dụng file này",
+          type="primary",
+          key="pm_relationship_apply",
+      ):
+        try:
+          authenticated_request(
+              "PUT",
+              f"{API_BASE_URL}/table-relationships/active",
+              json={"filename": selected_relationship_file},
+          )
+        except RuntimeError as exc:
+          st.error(f"Không thể áp dụng file relationship: {exc}")
+        else:
+          st.success(f"Đã áp dụng file {selected_relationship_file}.")
+          st.rerun()
+
+      st.markdown("#### Thêm file relationship")
+      uploaded_relationship_file = st.file_uploader(
+          "Chọn file JSON",
+          type=["json"],
+          key="pm_relationship_upload",
+      )
+      if st.button(
+          "Tải file lên",
+          disabled=uploaded_relationship_file is None,
+          key="pm_relationship_upload_button",
+      ):
+        try:
+          authenticated_request(
+              "POST",
+              f"{API_BASE_URL}/table-relationships",
+              files={
+                  "file": (
+                      uploaded_relationship_file.name,
+                      uploaded_relationship_file.getvalue(),
+                      "application/json",
+                  )
+              },
+          )
+        except RuntimeError as exc:
+          st.error(f"Không thể thêm file relationship: {exc}")
+        else:
+          st.success(
+              f"Đã thêm file {uploaded_relationship_file.name}. "
+              "File chưa được áp dụng."
+          )
+          st.rerun()
+
+  # ---------------------------------------------------------
+  # 7. Menu: AI Chatbot Toàn hệ thống
   # ---------------------------------------------------------
   elif menu == "💬 AI Chatbot Toàn hệ thống":
     render_chatbot(
@@ -672,10 +867,10 @@ def render_pm_view():
         state_prefix="pm_chat",
     )
   elif menu == "🧠 Cấu hình AI Agent":
-    st.subheader("🧠 Cấu hình model cho AI Agent")
+    st.subheader("🧠 Cấu hình AI Agent và truy xuất")
     st.caption(
-        "Chọn Gemini hoặc Ollama cho từng agent. Thay đổi có hiệu lực "
-        "ngay sau khi lưu."
+        "Chọn mô hình và temperature cho từng agent; cấu hình thêm tham số "
+        "truy xuất RAG và bảng."
     )
     try:
       response = authenticated_request(
@@ -691,15 +886,19 @@ def render_pm_view():
           or any(not isinstance(agent, dict) for agent in agents)
       ):
         raise RuntimeError("Backend không trả về danh sách agent hợp lệ.")
+      if not isinstance(settings.get("retrieval"), dict):
+        raise RuntimeError("Backend không trả về cấu hình retrieval hợp lệ.")
     except (RuntimeError, ValueError) as exc:
       st.error(f"Không thể tải cấu hình model: {exc}")
     else:
       provider_labels = {
           "gemini": "Gemini",
           "ollama": "Ollama",
+          "groq": "Groq",
       }
       with st.form("pm_agent_model_settings"):
         providers = {}
+        temperatures = {}
         for agent in agents:
           options = agent.get("options", [])
           option_providers = [
@@ -728,22 +927,68 @@ def render_pm_view():
               key=f"agent_model_provider_{agent['id']}",
           )
           providers[agent["id"]] = selected_provider
+          temperatures[agent["id"]] = st.slider(
+              f"Temperature — {agent.get('label', agent['id'])}",
+              min_value=0.0,
+              max_value=1.0,
+              value=float(agent.get("temperature", 0.1)),
+              step=0.1,
+              key=f"agent_temperature_{agent['id']}",
+          )
+
+        retrieval = settings.get("retrieval", {})
+        st.markdown("#### Tìm kiếm tài liệu RAG")
+        rag_match_threshold = st.slider(
+            "Match threshold",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(retrieval.get("rag_match_threshold", 0.6)),
+            step=0.01,
+            key="rag_search_match_threshold",
+        )
+        rag_match_count = st.number_input(
+            "Match count — tìm đoạn RAG",
+            min_value=1,
+            max_value=100,
+            value=int(retrieval.get("rag_match_count", 4)),
+            step=1,
+            key="rag_search_match_count",
+        )
+
+        st.markdown("#### Tìm kiếm bảng cho Text-to-SQL")
+        table_match_count = st.number_input(
+            "Match count — retrieve bảng",
+            min_value=1,
+            max_value=100,
+            value=int(retrieval.get("table_match_count", 3)),
+            step=1,
+            key="table_retrieval_match_count",
+        )
 
         submitted = st.form_submit_button(
-            "Lưu cấu hình model", type="primary"
+            "Lưu cấu hình", type="primary"
         )
       if submitted:
-        if len(providers) != len(agents):
+        if (
+            len(providers) != len(agents)
+            or len(temperatures) != len(agents)
+        ):
           st.error("Không thể lưu do cấu hình agent chưa đầy đủ.")
         else:
           try:
             authenticated_request(
                 "PUT",
                 f"{API_BASE_URL}/agent-models",
-                json={"providers": providers},
+                json={
+                    "providers": providers,
+                    "temperatures": temperatures,
+                    "rag_match_threshold": rag_match_threshold,
+                    "rag_match_count": rag_match_count,
+                    "table_match_count": table_match_count,
+                },
             )
           except RuntimeError as exc:
-            st.error(f"Không thể lưu cấu hình model: {exc}")
+            st.error(f"Không thể lưu cấu hình: {exc}")
           else:
-            st.success("Đã lưu cấu hình model cho các agent.")
+            st.success("Đã lưu cấu hình agent và tham số truy xuất.")
             st.rerun()

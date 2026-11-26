@@ -186,6 +186,12 @@ def render_log_view():
               return new Intl.NumberFormat("vi-VN").format(value || 0);
             }}
 
+            function formatSimilarity(value) {{
+              const score = Number(value);
+              return value !== null && value !== undefined &&
+                Number.isFinite(score) ? score.toFixed(4) : "Không có";
+            }}
+
             function tokenTotals(events) {{
               const totals = {{ input_tokens: 0, output_tokens: 0, total_tokens: 0 }};
               let found = false;
@@ -416,7 +422,8 @@ def render_log_view():
                       item.textContent =
                         `${{chunk.document_name || "Không rõ tài liệu"}}` +
                         ` · ${{chunk.chapter || "Chưa xác định chương"}}` +
-                        ` · ${{chunk.article_title || "Chưa xác định điều"}}`;
+                        ` · ${{chunk.article_title || "Chưa xác định điều"}}` +
+                        ` · Similarity: ${{formatSimilarity(chunk.similarity)}}`;
                       chunks.appendChild(item);
                     }}
                     card.appendChild(chunks);
@@ -440,11 +447,23 @@ def render_log_view():
                   card.appendChild(branch);
                 }}
                 if (details.candidate_tables) {{
-                  const tables = document.createElement("p");
-                  tables.textContent =
-                    "Các bảng được chọn: " +
-                    details.candidate_tables.join(", ");
-                  card.appendChild(tables);
+                  if (details.table_matches?.length) {{
+                    const tables = document.createElement("ul");
+                    for (const match of details.table_matches) {{
+                      const item = document.createElement("li");
+                      item.textContent =
+                        `${{match.table_name}} · Similarity: ` +
+                        formatSimilarity(match.similarity);
+                      tables.appendChild(item);
+                    }}
+                    card.appendChild(tables);
+                  }} else {{
+                    const tables = document.createElement("p");
+                    tables.textContent =
+                      "Các bảng được chọn: " +
+                      details.candidate_tables.join(", ");
+                    card.appendChild(tables);
+                  }}
                 }}
                 if (details.join_paths) {{
                   const joins = document.createElement("p");

@@ -262,7 +262,7 @@ else:
 
     with st.sidebar:
         st.markdown("### 🏢 Hệ thống HR-AI")
-        st.info(f"Xin chào: **{user_info['name']}**\nQuyền: **{role}**")
+        st.info(f"Xin chào: **{user_info['name']}** \n\n Quyền: **{role}**")
 
         st.markdown("---")
         if st.button("🚪 Đăng xuất / Đổi tài khoản", use_container_width=True):

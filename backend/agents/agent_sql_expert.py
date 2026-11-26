@@ -85,8 +85,13 @@ class SQLGraphAgent:
     return semantic_context
 
   def process(self, user_question: str, run_id: str | None = None) -> dict:
-    from tools.graph_path_resolver import GraphPathResolver
-    from tools.tables_retriever import get_top_k_tables_from_supabase
+    from services.graph_path_resolver import GraphPathResolver
+    from services.table_relationship_config import (
+        get_active_relationship_config_path,
+    )
+    from services.tables_retriever import (
+        get_top_k_table_matches_from_supabase,
+    )
 
     # 1. Truy xuất các bảng liên quan đến câu hỏi
     if run_id:
@@ -98,7 +103,8 @@ class SQLGraphAgent:
           agent="sql_expert",
       )
     try:
-      candidate_tables = get_top_k_tables_from_supabase(user_question)
+      table_matches = get_top_k_table_matches_from_supabase(user_question)
+      candidate_tables = [match["table_name"] for match in table_matches]
       if not candidate_tables:
         raise RuntimeError("Không tìm thấy bảng phù hợp cho câu hỏi.")
     except Exception:
@@ -116,11 +122,26 @@ class SQLGraphAgent:
           run_id,
           "table_retrieval",
           "completed",
-          {"candidate_tables": candidate_tables},
+          {
+              "candidate_tables": candidate_tables,
+              "table_matches": [
+                  {
+                      "table_name": match["table_name"],
+                      "similarity": match.get(
+                          "similarity", match.get("similarity_score")
+                      ),
+                  }
+                  for match in table_matches
+              ],
+          },
           agent="sql_expert",
       )
 
     # 2. Dùng helper để tìm đường join giữa các bảng
+    active_config_path = str(get_active_relationship_config_path())
+    if self.json_config_path != active_config_path:
+      self.json_config_path = active_config_path
+      self.graph_path_resolver = None
     if self.graph_path_resolver is None:
       self.graph_path_resolver = GraphPathResolver(self.json_config_path)
     if run_id:

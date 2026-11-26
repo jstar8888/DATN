@@ -92,7 +92,7 @@ class GraphPathResolver:
             if table_name not in candidate_tables
         ],
         "resolved_joins": resolved_joins,
-        "graph_traversal_steps": " | ".join(explanations),
+        "graph_traversal_steps": "\n".join(explanations),
     }
 
   def _extract_edges_from_path(self, path: list, resolved_joins: list, explanations: list):

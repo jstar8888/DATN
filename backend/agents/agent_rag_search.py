@@ -1,6 +1,7 @@
 from typing import Any
 
 from database.supabase_general_service import SupabaseService
+from agents.configurable_llm import get_retrieval_settings
 from script.embedding_service import GeminiEmbeddingService
 from utils.event_bus import global_event_bus
 
@@ -12,8 +13,8 @@ class RAGSearchAgent:
         self,
         embedding_service: GeminiEmbeddingService | None = None,
         supabase_service: SupabaseService | None = None,
-        match_threshold: float = 0.5,
-        match_count: int = 4,
+        match_threshold: float | None = None,
+        match_count: int | None = None,
     ):
         self.embedding_service = embedding_service
         self.supabase_service = supabase_service
@@ -38,6 +39,26 @@ class RAGSearchAgent:
             )
 
         try:
+            retrieval_settings = get_retrieval_settings()
+            effective_match_threshold = (
+                match_threshold
+                if match_threshold is not None
+                else (
+                    self.match_threshold
+                    if self.match_threshold is not None
+                    else retrieval_settings["rag_match_threshold"]
+                )
+            )
+            effective_match_count = (
+                match_count
+                if match_count is not None
+                else (
+                    self.match_count
+                    if self.match_count is not None
+                    else retrieval_settings["rag_match_count"]
+                )
+            )
+
             embedding_service = self.embedding_service
             if embedding_service is None:
                 embedding_service = GeminiEmbeddingService()
@@ -55,14 +76,8 @@ class RAGSearchAgent:
                 "match_document_chunks",
                 {
                     "query_embedding": query_embedding,
-                    "match_threshold": (
-                        self.match_threshold
-                        if match_threshold is None
-                        else match_threshold
-                    ),
-                    "match_count": (
-                        self.match_count if match_count is None else match_count
-                    ),
+                    "match_threshold": effective_match_threshold,
+                    "match_count": effective_match_count,
                 },
             )
             if chunks is None:
@@ -99,6 +114,10 @@ class RAGSearchAgent:
                                 "document_name",
                                 "chapter",
                                 "article_title",
+                            )
+                        } | {
+                            "similarity": chunk.get(
+                                "similarity", chunk.get("similarity_score")
                             )
                         }
                         for chunk in chunks

@@ -1,4 +1,4 @@
-from pathlib import Path
+
 from typing import Any
 import logging
 from agents.agent_rag_search import RAGSearchAgent
@@ -17,14 +17,14 @@ from database.supabase_general_service import SupabaseService  # Dùng để g�
 from langgraph.graph import END, StateGraph
 from typing_extensions import TypedDict
 from utils.event_bus import global_event_bus
+from services.table_relationship_config import get_active_relationship_config_path
 
 router = RouterAgent()
 query_rewriter = QueryRewriterAgent()  # Khởi tạo QueryRewriterAgent
 db = SupabaseService()                 # Khởi tạo Service kết nối Supabase
 
-config_dir = Path(__file__).resolve().parents[1] / "config"
 sql_expert = SQLGraphAgent(
-    str(config_dir / "table_relationships_and_paths.json"),
+    str(get_active_relationship_config_path()),
 )
 sql_executor = SQLExecutorAgent()
 rag_search = RAGSearchAgent()

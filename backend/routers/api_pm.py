@@ -10,7 +10,13 @@ from datamodel.schema import EmployeeResponse, ProjectCreate, ProjectResponse
 from routers.api_authentication import require_role
 from agents.configurable_llm import (
     get_agent_model_settings,
+    get_retrieval_settings,
     update_agent_model_settings,
+)
+from services.table_relationship_config import (
+    add_relationship_config,
+    list_relationship_configs,
+    set_active_relationship_config,
 )
 
 db = SupabaseService()
@@ -56,17 +62,109 @@ class TableEmbeddingPayload(BaseModel):
 
 
 class AgentModelSettingsPayload(BaseModel):
-    providers: Dict[str, Literal["gemini", "ollama"]]
+    providers: Dict[str, Literal["gemini", "ollama", "groq"]]
+    temperatures: Optional[Dict[str, float]] = None
+    rag_match_threshold: Optional[float] = Field(None, ge=0, le=1)
+    rag_match_count: Optional[int] = Field(None, ge=1, le=100)
+    table_match_count: Optional[int] = Field(None, ge=1, le=100)
+
+
+class ActiveRelationshipConfigPayload(BaseModel):
+    filename: str = Field(..., min_length=1)
 
 
 # ==========================================
 # 2. API ENDPOINTS CHO PM
 # ==========================================
 
+@router.get(
+    "/table-relationships",
+    summary="Lấy danh sách file relationship và file đang áp dụng",
+)
+def get_table_relationship_configs():
+    try:
+        return list_relationship_configs()
+    except (OSError, RuntimeError, ValueError) as exc:
+        logger.exception("Không thể đọc danh sách file relationship")
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Không thể đọc danh sách file relationship.",
+        ) from exc
+
+
+@router.post(
+    "/table-relationships",
+    summary="Thêm file JSON mô tả relationship giữa các bảng",
+)
+async def upload_table_relationship_config(file: UploadFile = File(...)):
+    filename = file.filename or ""
+    try:
+        content = await file.read(5 * 1024 * 1024 + 1)
+    finally:
+        await file.close()
+
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(
+            status_code=http_status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="File không được vượt quá 5 MB.",
+        )
+
+    try:
+        files = add_relationship_config(filename, content)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except FileExistsError as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except OSError as exc:
+        logger.exception("Không thể lưu file relationship %s", filename)
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Không thể lưu file relationship.",
+        ) from exc
+    return {"files": files}
+
+
+@router.put(
+    "/table-relationships/active",
+    summary="Chọn file relationship duy nhất được áp dụng",
+)
+def update_active_table_relationship_config(
+    payload: ActiveRelationshipConfigPayload,
+):
+    try:
+        active_filename = set_active_relationship_config(payload.filename)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except (OSError, RuntimeError) as exc:
+        logger.exception("Không thể áp dụng file relationship %s", payload.filename)
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Không thể áp dụng file relationship.",
+        ) from exc
+    return {"active_file": active_filename}
+
+
 @router.get("/agent-models", summary="Lấy cấu hình model của các AI agent")
 def read_agent_model_settings():
     try:
-        return {"agents": get_agent_model_settings()}
+        return {
+            "agents": get_agent_model_settings(),
+            "retrieval": get_retrieval_settings(),
+        }
     except RuntimeError as exc:
         logger.exception("Không thể đọc cấu hình model agent")
         raise HTTPException(
@@ -78,11 +176,23 @@ def read_agent_model_settings():
 @router.put("/agent-models", summary="Cập nhật cấu hình model của các AI agent")
 def save_agent_model_settings(payload: AgentModelSettingsPayload):
     try:
-        agents = update_agent_model_settings(payload.providers)
+        agents = update_agent_model_settings(
+            payload.providers,
+            payload.temperatures,
+            payload.rag_match_threshold,
+            payload.rag_match_count,
+            payload.table_match_count,
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
+        ) from exc
+    except RuntimeError as exc:
+        logger.exception("Không thể đọc cấu hình hiện tại của agent")
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Không thể đọc cấu hình hiện tại của agent.",
         ) from exc
     except OSError as exc:
         logger.exception("Không thể cập nhật cấu hình model agent")
@@ -90,7 +200,7 @@ def save_agent_model_settings(payload: AgentModelSettingsPayload):
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Không thể cập nhật cấu hình model agent.",
         ) from exc
-    return {"agents": agents}
+    return {"agents": agents, "retrieval": get_retrieval_settings()}
 
 
 # --- 3. AI-Agent Tổng hợp Tiến độ ---
@@ -148,7 +258,7 @@ async def upload_rag_document(
     )
 
   try:
-    from tools.document_chunking import (
+    from services.document_chunking import (
         InvalidDocumentError,
         process_uploaded_document,
     )

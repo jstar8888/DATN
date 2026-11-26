@@ -1,10 +1,25 @@
 {
   "agents": {
     "query_rewriter": "ollama",
-    "router": "ollama",
+    "router": "groq",
     "sql_expert": "gemini",
-    "synthesizer": "gemini",
+    "synthesizer": "groq",
     "evaluate": "gemini",
     "sql_validator": "gemini"
+  },
+  "temperatures": {
+    "query_rewriter": 0.1,
+    "router": 0.1,
+    "sql_expert": 0.1,
+    "synthesizer": 0.1,
+    "evaluate": 0.1,
+    "sql_validator": 0.0
+  },
+  "rag_search": {
+    "match_threshold": 0.6,
+    "match_count": 4
+  },
+  "table_retrieval": {
+    "match_count": 3
   }
 }
