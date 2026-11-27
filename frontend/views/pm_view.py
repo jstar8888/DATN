@@ -1,4 +1,7 @@
 import json
+import time as time_module
+
+import requests
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
@@ -14,6 +17,208 @@ from datetime import date, datetime, time
 
 # Định nghĩa URL gốc của FastAPI Backend
 API_BASE_URL = f"{BACKEND_BASE_URL}/api/pm"
+API_AGENT_BASE_URL = f"{BACKEND_BASE_URL}/api/agent"
+
+
+def _run_portfolio_evaluation() -> dict:
+  response = authenticated_request(
+      "POST", f"{API_AGENT_BASE_URL}/all-projects-evaluations"
+  )
+  run_id = response.json().get("run_id")
+  if not run_id:
+    raise RuntimeError("Backend không trả về mã chạy phân tích danh mục.")
+
+  deadline = time_module.monotonic() + 600
+  with requests.get(
+      f"{API_AGENT_BASE_URL}/events",
+      params={"run_id": run_id},
+      stream=True,
+      timeout=(10, 30),
+  ) as event_response:
+    event_response.raise_for_status()
+    for line in event_response.iter_lines(chunk_size=1, decode_unicode=True):
+      if time_module.monotonic() >= deadline:
+        raise TimeoutError(
+            f"Phân tích danh mục quá thời gian cho phép (run_id={run_id})."
+        )
+      if not line or not line.startswith("data:"):
+        continue
+
+      event = json.loads(line.removeprefix("data:").strip())
+      if event.get("step") != "run":
+        continue
+      details = event.get("details", {})
+      if event.get("status") == "failed":
+        raise RuntimeError(
+            details.get("message", "Không thể phân tích danh mục dự án.")
+        )
+      if event.get("status") == "completed":
+        if not isinstance(details.get("data"), dict):
+          raise RuntimeError("Luồng phân tích hoàn tất nhưng thiếu dữ liệu.")
+        return {"run_id": run_id, **details}
+
+  raise RuntimeError(
+      f"Luồng phân tích đã đóng trước khi hoàn tất (run_id={run_id})."
+  )
+
+
+def _render_portfolio_evaluation(evaluation: dict):
+  if not isinstance(evaluation, dict) or not evaluation:
+    st.error("Dữ liệu phân tích danh mục dự án không hợp lệ.")
+    return
+
+  summary = evaluation.get("executive_summary")
+  if summary:
+    with st.container(border=True):
+      st.markdown("#### 🧭 Tóm tắt danh mục dự án")
+      st.write(summary)
+
+  project_bars = evaluation.get("bar_projects_comparison", [])
+  project_bars = project_bars if isinstance(project_bars, list) else []
+  warnings = evaluation.get("risk_warnings", [])
+  warnings = warnings if isinstance(warnings, list) else []
+  status_rows = evaluation.get("pie_by_status", [])
+  project_count = (
+      sum(
+          int(row.get("count", 0) or 0)
+          for row in status_rows
+          if isinstance(row, dict)
+      )
+      if isinstance(status_rows, list) and status_rows
+      else len(project_bars)
+  )
+  average_progress = (
+      sum(
+          float(project.get("avg_progress_percent", 0) or 0)
+          for project in project_bars
+      )
+      / len(project_bars)
+      if project_bars
+      else 0
+  )
+
+  metric_cols = st.columns(3)
+  with metric_cols[0]:
+    st.metric("📁 Tổng số dự án", project_count)
+  with metric_cols[1]:
+    st.metric("📈 Tiến độ trung bình", f"{average_progress:.1f}%")
+  with metric_cols[2]:
+    st.metric("⚠️ Dự án có cảnh báo", len(warnings))
+
+  st.markdown("### 📊 Biểu đồ danh mục")
+  status_col, feasibility_col = st.columns(2)
+  chart_definitions = (
+      (status_col, "Phân bố theo trạng thái", "pie_by_status", "status"),
+      (
+          feasibility_col,
+          "Đánh giá tính khả thi",
+          "pie_by_feasibility",
+          "status",
+      ),
+  )
+  for column, title, data_key, label_key in chart_definitions:
+    with column:
+      with st.container(border=True):
+        st.markdown(f"#### {title}")
+        chart_rows = evaluation.get(data_key, [])
+        if isinstance(chart_rows, list) and chart_rows:
+          chart_data = pd.DataFrame(chart_rows)
+          if {"count", label_key}.issubset(chart_data.columns):
+            st.vega_lite_chart(
+                chart_data,
+                {
+                    "mark": {"type": "arc", "innerRadius": 55},
+                    "encoding": {
+                        "theta": {"field": "count", "type": "quantitative"},
+                        "color": {
+                            "field": label_key,
+                            "type": "nominal",
+                            "title": "Nhóm",
+                        },
+                        "tooltip": [
+                            {"field": label_key, "type": "nominal", "title": "Nhóm"},
+                            {"field": "count", "type": "quantitative", "title": "Số dự án"},
+                        ],
+                    },
+                    "view": {"stroke": None},
+                },
+                width="stretch",
+            )
+          else:
+            st.info("Dữ liệu biểu đồ chưa đầy đủ.")
+        else:
+          st.info("Chưa có dữ liệu.")
+
+  progress_col, hours_col = st.columns(2)
+  with progress_col:
+    with st.container(border=True):
+      st.markdown("#### Tiến độ theo dự án")
+      if project_bars:
+        progress_data = pd.DataFrame(project_bars)
+        if {"project_name", "avg_progress_percent"}.issubset(
+            progress_data.columns
+        ):
+          st.bar_chart(
+              progress_data,
+              x="project_name",
+              y="avg_progress_percent",
+              y_label="Tiến độ (%)",
+              x_label="Dự án",
+              height=320,
+          )
+        else:
+          st.info("Dữ liệu tiến độ chưa đầy đủ.")
+      else:
+        st.info("Chưa có dữ liệu.")
+
+  with hours_col:
+    with st.container(border=True):
+      st.markdown("#### Giờ công dự kiến và thực tế")
+      if project_bars:
+        hours_data = pd.DataFrame(project_bars)
+        if {"project_name", "estimated_hours", "actual_hours"}.issubset(
+            hours_data.columns
+        ):
+          st.bar_chart(
+              hours_data,
+              x="project_name",
+              y=["estimated_hours", "actual_hours"],
+              y_label="Số giờ",
+              x_label="Dự án",
+              height=320,
+          )
+        else:
+          st.info("Dữ liệu giờ công chưa đầy đủ.")
+      else:
+        st.info("Chưa có dữ liệu.")
+
+  st.markdown("### ⚠️ Cảnh báo và đề xuất xử lý")
+  if not warnings:
+    st.success("Không có cảnh báo rủi ro trong lần phân tích này.")
+  else:
+    risk_icons = {"Cao": "🔴", "Trung bình": "🟠", "Thấp": "🟡"}
+    for warning in warnings:
+      if not isinstance(warning, dict):
+        continue
+      project_name = warning.get("project_name") or warning.get(
+          "project_id", "Dự án"
+      )
+      risk_level = warning.get("risk_level", "Chưa xác định")
+      with st.container(border=True):
+        st.markdown(
+            f"**{risk_icons.get(risk_level, '⚪')} {project_name}** · "
+            f"{risk_level} · {warning.get('feasibility_status', 'Chưa đánh giá')}"
+        )
+        st.caption(
+            f"Mã dự án: {warning.get('project_id', '—')} · "
+            f"Tiến độ: {warning.get('progress_percent', 0)}%"
+        )
+        reasons = warning.get("reasons", [])
+        actions = warning.get("recommended_actions", [])
+        if reasons:
+          st.markdown("**Nguyên nhân:** " + " · ".join(map(str, reasons)))
+        if actions:
+          st.markdown("**Đề xuất:** " + " · ".join(map(str, actions)))
 
 
 @st.dialog("Xác nhận kết thúc dự án")
@@ -468,23 +673,23 @@ def render_pm_view():
   # ---------------------------------------------------------
   elif menu == "📊 AI-Agent Tổng hợp Tiến độ":
     st.subheader("📊 AI-Agent Tổng hợp & Phân tích Tiến độ Toàn cục")
-    if st.button("Chạy Agent phân tích tổng quan dự án", type="primary"):
+    evaluation_result = st.session_state.get("portfolio_evaluation_result")
+    if st.button(
+        "Chạy phân tích danh mục dự án"
+        if not evaluation_result
+        else "Chạy lại phân tích",
+        type="primary",
+    ):
       try:
-        res = authenticated_request(
-            "POST", f"{API_BASE_URL}/ai-agent/analyze-progress"
-        )
-        if res.status_code == 200:
-          report = res.json().get("agent_report", {})
-          st.info(
-              "🤖 **Báo cáo từ AI-Agent:**\n"
-              f"- Tổng số dự án active: {report.get('active_projects_count')}\n"
-              f"- **Cảnh báo rủi ro:** {report.get('risk_warnings')}\n"
-              f"- **Đề xuất:** {report.get('recommendations')}"
-          )
-        else:
-          st.error("Không thể lấy dữ liệu phân tích từ AI-Agent.")
+        with st.spinner("Đang phân tích danh mục dự án..."):
+          evaluation_result = _run_portfolio_evaluation()
+        st.session_state.portfolio_evaluation_result = evaluation_result
+        st.rerun()
       except Exception as e:
-        st.error(f"Lỗi kết nối API: {e}")
+        st.error(f"Không thể phân tích danh mục dự án: {e}")
+
+    if evaluation_result:
+      _render_portfolio_evaluation(evaluation_result.get("data", {}))
 
   # ---------------------------------------------------------
   # 4. Menu: Quản lý Kho tài liệu RAG

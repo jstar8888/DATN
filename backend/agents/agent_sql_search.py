@@ -1,12 +1,11 @@
-# agent_sql_search.py
-import json
 from typing import Any, Dict, Optional
+
 from database.supabase_general_service import SupabaseService
 from utils.event_bus import global_event_bus
 
 
 class SqlSearchAgent:
-    """Agent tổng hợp dữ liệu SQL thô theo schema chuẩn cho các nhánh OT và Leave Request."""
+    """Aggregate database data for request and project portfolio evaluations."""
 
     def __init__(self):
         self.db = SupabaseService()
@@ -17,7 +16,7 @@ class SqlSearchAgent:
         context: Dict[str, Any],
         run_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Thực hiện tổng hợp dữ liệu SQL dựa trên command (OT hoặc Leave_request)."""
+        """Select the data aggregation branch matching the requested evaluation."""
         if run_id:
             global_event_bus.publish_event(
                 run_id,
@@ -27,10 +26,12 @@ class SqlSearchAgent:
                 agent="sql_search_agent",
             )
 
-        cmd_upper = command.strip().upper()
+        cmd_upper = command.strip().upper().replace(" ", "_")
 
         try:
-            if "OT" in cmd_upper or cmd_upper == "OVERTIME":
+            if cmd_upper in {"ALL_PROJECTS", "PORTFOLIO", "PROJECT_PORTFOLIO"}:
+                sql_data = self._aggregate_all_projects_data(context)
+            elif "OT" in cmd_upper or cmd_upper == "OVERTIME":
                 sql_data = self._aggregate_ot_data(context)
             elif "LEAVE" in cmd_upper or "NGHI" in cmd_upper:
                 sql_data = self._aggregate_leave_data(context)
@@ -42,7 +43,12 @@ class SqlSearchAgent:
                     run_id,
                     "sql_search_agent",
                     "completed",
-                    {"message": "Đã tổng hợp sql_data thành công."},
+                    {
+                        "message": "Đã tổng hợp sql_data thành công.",
+                        "data_type": sql_data.get("type"),
+                        "project_count": sql_data.get("total_projects"),
+                        "task_count": sql_data.get("total_tasks"),
+                    },
                     agent="sql_search_agent",
                 )
             return sql_data
@@ -185,6 +191,8 @@ class SqlSearchAgent:
             "leave_history": leave_history,
         }
 
+
+
     def _aggregate_general_data(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
         employee_id = ctx.get("employee_id")
         if not employee_id:
@@ -199,4 +207,29 @@ class SqlSearchAgent:
             "employee_info": employee_info[0] if employee_info else None,
             "tasks": tasks,
             "attendance": attendance,
+        }
+
+
+    def _aggregate_all_projects_data(self, ctx: Dict[str, Any]) -> Dict[str, Any]:
+        """Load the projects and tasks consumed by the portfolio evaluation graph."""
+        status_filter = ctx.get("status")
+        project_filters = {"status": status_filter} if status_filter else None
+
+        projects = self.db.select("project", filters=project_filters) or []
+        tasks = self.db.select("task") or []
+
+        if status_filter:
+            valid_project_ids = {
+                str(p.get("project_id")) for p in projects if p.get("project_id")
+            }
+            tasks = [
+                t for t in tasks if str(t.get("project_id", "")) in valid_project_ids
+            ]
+
+        return {
+            "type": "ALL_PROJECTS_EVALUATION_DATA",
+            "total_projects": len(projects),
+            "total_tasks": len(tasks),
+            "projects": projects,
+            "tasks": tasks,
         }

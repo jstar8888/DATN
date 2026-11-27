@@ -166,6 +166,57 @@ async def start_request_evaluation(
   return {"status": "running", "run_id": run_id}
 
 
+async def _run_all_projects_evaluation(run_id: str) -> None:
+  try:
+    from agents.langgraph_all_projects_evaluation import app as evaluation_workflow
+
+    result = await asyncio.to_thread(
+        evaluation_workflow.invoke,
+        {"context": {}, "run_id": run_id},
+    )
+    global_event_bus.publish_event(
+        run_id,
+        "run",
+        "completed",
+        {
+            "response": result["final_answer"],
+            "data": jsonable_encoder(result["evaluation_result"]),
+        },
+        agent="orchestrator",
+    )
+  except Exception as exc:
+    logger.exception("Đánh giá danh mục dự án thất bại (run_id=%s)", run_id)
+    error_message = str(exc) or "Không thể đánh giá danh mục dự án lúc này."
+    global_event_bus.publish_event(
+        run_id,
+        "run",
+        "failed",
+        {"message": error_message},
+        agent="orchestrator",
+    )
+
+
+@router.post(
+    "/all-projects-evaluations",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Bắt đầu đánh giá toàn bộ danh mục dự án",
+    dependencies=[Depends(require_role("Project Manager"))],
+)
+async def start_all_projects_evaluation():
+  run_id = str(uuid4())
+  global_event_bus.publish_event(
+      run_id,
+      "run",
+      "running",
+      {"question": "Đánh giá toàn bộ danh mục dự án"},
+      agent="orchestrator",
+  )
+  task = asyncio.create_task(_run_all_projects_evaluation(run_id))
+  _run_tasks.add(task)
+  task.add_done_callback(_run_tasks.discard)
+  return {"status": "running", "run_id": run_id}
+
+
 async def _run_chatbot(
     run_id: str, question: str, chat_id: str, user_id: str
 ):
